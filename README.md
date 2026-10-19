@@ -134,6 +134,106 @@ OpenAI caching requires repeated eligible prefixes; short prompts, changed tools
 context eviction, cache expiry, and heavy routing traffic reduce reuse. A 99%
 hit rate cannot be guaranteed by a harness. See [OpenAI's caching guide](https://platform.openai.com/docs/guides/prompt-caching).
 
+## MCP servers
+
+Pass MCP servers in `session/new` or `session/load` (see
+[`examples/mcp-session.json`](examples/mcp-session.json)). Supported transports:
+newline-delimited **stdio** and **Streamable HTTP** with JSON or SSE replies.
+Legacy HTTP+SSE transport, MCP OAuth, resource/prompt discovery, sampling,
+elicitation, and resumable/background SSE subscriptions are not implemented.
+Use launcher-supplied environment entries or HTTP headers for authentication.
+Never commit real credentials in an example or project file.
+
+```json
+{
+  "cwd": "/absolute/path/project",
+  "mcpServers": [
+    {"name":"local","command":"/absolute/path/mcp-server","args":["--stdio"],"env":[]},
+    {"name":"remote","type":"http","url":"https://mcp.example.com/mcp","headers":[]}
+  ]
+}
+```
+
+Connections start only on the first code-mode turn, not session creation, idle
+startup, or plan-mode prompts. Identical workspace/server definitions share one
+connection across sessions and worker subagents; different workspaces do not.
+No MCP subprocess is created per ordinary model agent. Stdio processes and their
+Unix process groups are stopped when their last session/tool snapshot is dropped.
+HTTP session expiry remains server-managed. Closed stdio connections and expired
+HTTP sessions (404) reconnect on a subsequent turn; interrupted tool calls are
+not automatically retried, because they may already have side effects.
+
+Initialization negotiates the protocol version, discovers paginated tools and
+caches schemas for up to 60 seconds. Stdio `tools/list_changed` notifications
+invalidate that cache for the next turn; tool sets stay fixed within each turn.
+Model names use `mcp_<server>_<tool>_<stable-hash>` to prevent namespace collisions.
+Descriptions and results are untrusted data. **Every remote tool call requires
+ACP permission**, including tools marked read-only by their server. Plan,
+explore and reviewer agents receive no MCP tools.
+
+Bounds: 8 servers per session; `max_mcp_connections = 32` distinct pooled
+workspace/server definitions by default (configurable 1–256); 32 tools per turn;
+4 KiB per schema; 64 KiB request frames; 1 MiB replies; 64 pending stdio requests
+per connection; 45-second I/O phase timeouts. Excess work fails explicitly instead
+of spawning unbounded processes. Cancellation drops the local wait and sends a
+best-effort MCP cancellation notification; remote side effects cannot be undone.
+
+Stdio environments are cleared, then a small runtime allowlist and explicitly
+configured entries are forwarded. HTTP requires TLS except on loopback, disables
+redirects and keeps supplied credentials out of diagnostics. Configuration/env/
+headers are not persisted with conversation history: resupply `mcpServers` on
+load. **MCP servers are trusted executable/network integrations, not sandboxes**:
+server startup itself can run arbitrary code, and inherited `HOME` still locates
+user files. Only the trusted ACP client may configure them.
+
+## Opt-in computer use
+
+Use [`examples/computer.toml`](examples/computer.toml), or add `computer_use = true`
+to an explicitly selected launcher configuration. The bundled
+[`computer-use` skill](skills/computer-use/SKILL.md) is automatically added to
+code/worker instructions when enabled. Normal runs load no computer processes,
+capture no screenshots and add no computer schema/instructions to model requests.
+
+The native `computer_use` tool requires **Linux X11**, `xdotool`, ImageMagick's
+`import`, and access through `DISPLAY`/`XAUTHORITY`. Executable paths can be set via
+`computer_xdotool` and `computer_import` in the trusted config. On other platforms,
+use a trusted MCP computer/browser server; native Wayland/macOS/Windows drivers
+are not provided. A vision-capable model/provider is required to interpret images.
+
+| Action | Arguments |
+| --- | --- |
+| `screenshot` | No other arguments |
+| `move`, `click`, `double_click` | `x`, `y`; optional `button`: left/middle/right |
+| `type` | `text` (maximum 4096 bytes, passed literally without a shell) |
+| `key` | `key`, e.g. `Return`, `Escape`, `ctrl+l` |
+| `scroll` | `direction`: up/down/left/right; optional `amount`: 1–20 ticks |
+
+All actions, **including screenshots**, require explicit ACP permission. Plan,
+explore and reviewer agents cannot use them. Native desktop actions are serialized
+process-wide and have bounded output and ten-second subprocess timeouts. Use one
+desktop-driving session at a time, or separate displays/VMs: serialized actions
+do not isolate focus across whole multi-step flows. Input dispatch is not proof
+of UI success; inspect a fresh screenshot after each action.
+
+Screenshots are JPEG, at most 1280×960 and 96 KiB; pointer coordinates refer to
+that resized image and are scaled back to the native display. Over-budget images
+fail explicitly. MCP tool results support bounded text, structured content,
+embedded text resources and one validated PNG/JPEG image (96 KiB, at most 4096 per
+dimension and 8 million pixels). Resource links are described, never fetched
+automatically. Audio, blobs and unsupported/oversized images are omitted with an
+explicit marker. Responses receives image tool-output blocks; Chat Completions
+receives paired text tool results followed by image user content. Both ACP live
+updates and session replay include retained images. Older tool images are replaced
+with an explicit omission marker when they exceed half the context-byte budget.
+Schemas, instructions and image data all count against the context budget.
+
+**Desktop access is not workspace scoped or sandboxed.** Close private windows
+first. Approved screenshots go to the model provider, trusted ACP client and
+private, unencrypted session storage. The skill prohibits inspecting credentials,
+typing secrets, bypassing denials, or submitting external/destructive actions
+without explicit user intent and approval. Do not assume automatic secret
+redaction. Let the human perform login and other sensitive steps themselves.
+
 ## Safety boundaries
 
 Code mode requires explicit client approval for **every** write/edit/shell call.
@@ -174,10 +274,11 @@ Extensions (all stdio JSON-RPC, no extra listener):
 | `_harness/task` (notification) | task state/output deltas |
 | `_harness/usage` (notification) | provider usage for a completed model response |
 
-Text and local `file:` resource-link prompts are supported. Images/audio, client
-filesystem/terminal delegation, and MCP server connections are not implemented;
-non-empty `mcpServers` is rejected rather than silently ignored. History is a
-bounded rolling window; evicted turns cannot be reconstructed on load.
+Text and local `file:` resource-link prompts are supported. Image **tool outputs**
+are supported as above; incoming image/audio prompts and client filesystem/terminal
+delegation are not implemented. MCP HTTP support is advertised during initialize
+(stdio is implicit in ACP); legacy SSE transport is explicitly not advertised.
+History is a bounded rolling window; evicted turns cannot be reconstructed on load.
 
 ## Development
 
@@ -189,7 +290,8 @@ cargo test --locked --all-targets
 cargo build --locked && python3 tests/stdio.py
 ```
 
-Tests use temporary workspaces and loopback SSE mocks; no paid model calls or
+Tests use temporary workspaces, mock desktop executables and loopback model/MCP
+servers; no desktop software, paid model calls or
 credentials are needed. CI does not validate live subscription eligibility,
 model intelligence, real provider caching, or comparisons against other agents.
 
@@ -197,7 +299,7 @@ Reproduce a release-mode local-overhead/concurrency/search benchmark:
 
 ```sh
 cargo build --release --locked
-python3 tests/benchmark.py --agents 256
+python3 tests/benchmark.py --agents 10
 ```
 
 It reports startup, throughput/latency against a simulated 50 ms loopback model,

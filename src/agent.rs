@@ -1,10 +1,6 @@
 use crate::{
-    config::Config,
-    jobs::Jobs,
-    protocol::Peer,
-    provider::Provider,
-    tools,
-    workspace::{Workspace, truncate},
+    config::Config, jobs::Jobs, mcp::Servers as McpServers, protocol::Peer, provider::Provider,
+    tools, workspace::Workspace,
 };
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
@@ -19,6 +15,8 @@ pub struct AgentContext {
     pub peer: Peer,
     pub workspace: Workspace,
     pub jobs: Jobs,
+    pub mcp: Arc<McpServers>,
+    pub desktop: Arc<crate::computer::Desktop>,
     pub agents: Arc<Semaphore>,
     pub searches: Arc<Semaphore>,
     pub session_id: String,
@@ -55,12 +53,14 @@ pub fn run_agent<'a>(
     ctx: &'a AgentContext,
     items: &'a mut Vec<Value>,
 ) -> Pin<Box<dyn Future<Output = Result<AgentResult>> + Send + 'a>> {
-    Box::pin(async move { run_with_instructions(ctx, items, instructions(ctx).await?).await })
+    Box::pin(async move {
+        run_with_instructions(ctx, items, instructions(ctx).await?, prepare(ctx).await?).await
+    })
 }
 
 pub async fn instructions(ctx: &AgentContext) -> Result<String> {
     let project = ctx.workspace.instructions().await?;
-    Ok(format!(
+    let mut instructions = format!(
         "{INSTRUCTIONS}\nWorking directory: {}\nMode: {}\n{project}",
         ctx.workspace.root.display(),
         if ctx.read_only {
@@ -68,17 +68,45 @@ pub async fn instructions(ctx: &AgentContext) -> Result<String> {
         } else {
             "code"
         }
-    ))
+    );
+    if ctx.config.computer_use && !ctx.read_only {
+        instructions.push('\n');
+        instructions.push_str(crate::computer::SKILL);
+    }
+    Ok(instructions)
+}
+
+pub struct Toolset {
+    pub definitions: Vec<Value>,
+    mcp: Option<crate::mcp::Tools>,
+}
+
+pub async fn prepare(ctx: &AgentContext) -> Result<Toolset> {
+    let mut definitions =
+        tools::definitions(ctx.read_only, ctx.depth < ctx.config.max_subagent_depth);
+    let mcp = if ctx.read_only {
+        None
+    } else {
+        Some(ctx.mcp.tools(&ctx.cancel).await?)
+    };
+    if let Some(mcp) = &mcp {
+        definitions.extend(mcp.definitions.iter().cloned());
+    }
+    if ctx.config.computer_use && !ctx.read_only && cfg!(target_os = "linux") {
+        definitions.push(crate::computer::definition());
+    }
+    Ok(Toolset { definitions, mcp })
 }
 
 pub fn run_with_instructions<'a>(
     ctx: &'a AgentContext,
     items: &'a mut Vec<Value>,
     instructions: String,
+    toolset: Toolset,
 ) -> Pin<Box<dyn Future<Output = Result<AgentResult>> + Send + 'a>> {
     Box::pin(async move {
-        let definitions =
-            tools::definitions(ctx.read_only, ctx.depth < ctx.config.max_subagent_depth);
+        let Toolset { definitions, mcp } = toolset;
+        let definition_bytes = serde_json::to_vec(&definitions)?.len();
         let mut last_text = String::new();
         for _ in 0..ctx.config.max_turn_steps {
             if ctx.cancel.is_cancelled() {
@@ -89,7 +117,7 @@ pub fn run_with_instructions<'a>(
             }
             let bytes = serde_json::to_vec(items)?.len();
             ensure!(
-                bytes + instructions.len() <= ctx.config.context_bytes,
+                bytes + instructions.len() + definition_bytes <= ctx.config.context_bytes,
                 "Active context budget exhausted; start a new session or increase context_bytes"
             );
             let response = tokio::select! {
@@ -133,12 +161,13 @@ pub fn run_with_instructions<'a>(
                 let outputs = futures_util::future::join_all(
                     calls[start..index]
                         .iter()
-                        .map(|call| execute_call(ctx, call, &definitions)),
+                        .map(|call| execute_call(ctx, call, &definitions, mcp.as_ref())),
                 )
                 .await;
                 for output in outputs {
                     items.push(output?);
                 }
+                crate::multimodal::trim_images(items, ctx.config.context_bytes / 2);
             }
         }
         Ok(AgentResult {
@@ -155,7 +184,12 @@ fn parallel(call: &Value) -> bool {
     )
 }
 
-async fn execute_call(ctx: &AgentContext, call: &Value, definitions: &[Value]) -> Result<Value> {
+async fn execute_call(
+    ctx: &AgentContext,
+    call: &Value,
+    definitions: &[Value],
+    mcp: Option<&crate::mcp::Tools>,
+) -> Result<Value> {
     let id = call["call_id"]
         .as_str()
         .context("Tool call missing call_id")?;
@@ -164,18 +198,34 @@ async fn execute_call(ctx: &AgentContext, call: &Value, definitions: &[Value]) -
         ensure!(definitions.iter().any(|d| d["name"] == name), "Tool is disabled or unknown");
         let args: Value = serde_json::from_str(call["arguments"].as_str().context("Missing tool arguments")?)?;
         ctx.peer.update(&ctx.session_id,json!({"sessionUpdate":"tool_call","toolCallId":id,"title":name,"kind":kind(name),"status":"in_progress","rawInput":args,"_meta":{"agentId":ctx.agent_id}})).await?;
-        tools::execute(ctx,name,&args,id).await
+        if let Some(target) = mcp.and_then(|mcp| mcp.targets.get(name)) {
+            ensure!(!ctx.read_only,"MCP tools are disabled in plan/read-only mode");
+            ctx.peer.permission(&ctx.session_id,id,name,"execute",json!({"serverTool":name,"arguments":args}),&ctx.cancel).await?;
+            target.call(&args,&ctx.cancel).await
+        } else {
+            tools::execute(ctx,name,&args,id).await
+        }
     }.await;
-    let failed = result.is_err();
+    let failed = result.is_err() || result.as_ref().is_ok_and(|value| value["isError"] == true);
     let output = match result {
         Ok(output) => output,
         Err(error) => json!({"error":format!("{error:#}")}),
     };
-    let content = truncate(
-        &serde_json::to_string(&output)?,
-        ctx.config.tool_output_bytes,
-    );
-    ctx.peer.update(&ctx.session_id,json!({"sessionUpdate":"tool_call_update","toolCallId":id,"status":if failed {"failed"} else {"completed"},"content":[{"type":"content","content":{"type":"text","text":content}}],"rawOutput":output,"_meta":{"agentId":ctx.agent_id}})).await?;
+    let normalized = crate::multimodal::normalize(&output, ctx.config.tool_output_bytes);
+    let raw = if name == "computer_use" || mcp.is_some_and(|tools| tools.targets.contains_key(name))
+    {
+        json!({"text":normalized.text,"isError":failed,"imageCount":normalized.images.len()})
+    } else {
+        output
+    };
+    let content = if normalized.images.is_empty() {
+        Value::String(normalized.text)
+    } else {
+        let mut parts = vec![json!({"type":"input_text","text":normalized.text})];
+        parts.extend(normalized.images);
+        Value::Array(parts)
+    };
+    ctx.peer.update(&ctx.session_id,json!({"sessionUpdate":"tool_call_update","toolCallId":id,"status":if failed {"failed"} else {"completed"},"content":crate::multimodal::acp_content(&content),"rawOutput":raw,"_meta":{"agentId":ctx.agent_id}})).await?;
     Ok(json!({"type":"function_call_output","call_id":id,"output":content}))
 }
 

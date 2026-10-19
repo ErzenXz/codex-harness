@@ -1,5 +1,6 @@
 """Black-box ACP/HTTP tests. Standard library only; never calls a real model."""
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 
 BINARY = Path(os.environ.get("HARNESS_BIN", "target/debug/codex-harness")).resolve()
+FIXTURE_JPEG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
 
 
 def response(output, text="", incomplete=False):
@@ -26,6 +28,10 @@ def final(text="done"):
 
 def call(name, args, ident="call-1"):
     return {"type": "function_call", "call_id": ident, "name": name, "arguments": json.dumps(args)}
+
+
+def mcp_tool(body,prefix):
+    return next(t["name"] for t in body["tools"] if t["name"].startswith(prefix))
 
 
 class Harness:
@@ -158,6 +164,205 @@ class Harness:
 
 
 class StdioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcp_images_dynamic_tools_ping_and_name_collisions(self):
+        for mode in ["image","dynamic","ping","collision","error"]:
+            async def model(body):
+                names=[t["name"] for t in body["tools"] if t["name"].startswith("mcp_")]
+                self.assertEqual(len(names),len(set(names)))
+                if mode=="collision": self.assertEqual(len(names),3)
+                last=body["input"][-1]
+                if last.get("type")=="function_call_output":
+                    if mode=="image":
+                        self.assertIsInstance(last["output"],list)
+                        self.assertTrue(any(p.get("image_url","").startswith("data:image/png;base64,") for p in last["output"]))
+                    if mode=="error": self.assertIn("Tool reported an error",str(last["output"]))
+                    return final()
+                return response([call(names[0],{"text":"MCP fixture"})])
+            async with Harness(model) as h:
+                await h.initialize()
+                log=h.root/"mcp.log"
+                new=await h.rpc("session/new",{"cwd":str(h.workspace),"mcpServers":[{"name":"fixture","command":sys.executable,"args":[str(Path(__file__).with_name("mcp_server.py")),str(log),mode]}]})
+                s=new["result"]["sessionId"]
+                for _ in range(2 if mode=="dynamic" else 1):
+                    result=await h.prompt(s)
+                    self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+                entries=[json.loads(line) for line in log.read_text().splitlines()]
+                if mode=="dynamic": self.assertEqual(sum(x["method"]=="tools/list" for x in entries),2)
+                if mode=="ping": self.assertTrue(any(x["method"]=="client-response" for x in entries))
+                if mode=="error": self.assertTrue(any(u["params"].get("update",{}).get("status")=="failed" for u in h.updates))
+
+    async def test_mcp_cancellation_is_prompt_and_last_unload_stops_shared_server(self):
+        async def model(body):
+            return response([call(mcp_tool(body,"mcp_fixture_echo_"),{"text":"waiting"})])
+        async with Harness(model) as h:
+            await h.initialize()
+            log=h.root/"mcp.log"
+            new=await h.rpc("session/new",{"cwd":str(h.workspace),"mcpServers":[{"name":"fixture","command":sys.executable,"args":[str(Path(__file__).with_name("mcp_server.py")),str(log),"hold"]}]})
+            s=new["result"]["sessionId"]
+            prompt=asyncio.create_task(h.prompt(s))
+            for _ in range(200):
+                if log.exists() and '"method": "tools/call"' in log.read_text(): break
+                await asyncio.sleep(.01)
+            else: self.fail("MCP tool did not start")
+            await h.rpc("session/cancel",{"sessionId":s})
+            result=await asyncio.wait_for(prompt,2)
+            self.assertEqual(result["result"]["stopReason"],"cancelled",result)
+            self.assertIn("notifications/cancelled",log.read_text())
+            pid=json.loads(log.read_text().splitlines()[0])["pid"]
+            await h.rpc("_harness/session/unload",{"sessionId":s})
+            for _ in range(200):
+                try: os.kill(pid,0)
+                except ProcessLookupError: break
+                await asyncio.sleep(.01)
+            else: self.fail("Unloading the last MCP user left its process alive")
+
+    async def test_computer_actions_multimodal_output_scaling_and_literal_arguments(self):
+        actions=[{"action":"screenshot"},{"action":"click","x":0,"y":0},{"action":"move","x":0,"y":0},{"action":"double_click","x":0,"y":0,"button":"right"},{"action":"type","text":"literal ; $(not-a-command) --text"},{"action":"key","key":"ctrl+l"},{"action":"scroll","direction":"down","amount":2}]
+        async def model(body):
+            self.assertIn("# Computer use",body["instructions"])
+            self.assertTrue(any(t["name"]=="computer_use" for t in body["tools"]))
+            outputs=[i for i in body["input"] if i.get("type")=="function_call_output"]
+            if outputs:
+                self.assertIsInstance(outputs[0]["output"],list)
+                self.assertTrue(any(part.get("image_url","").startswith("data:image/jpeg;base64,") for part in outputs[0]["output"]))
+                self.assertFalse(any('"error"' in json.dumps(o["output"]) for o in outputs))
+            return response([call("computer_use",actions[len(outputs)],f"c-{len(outputs)}")]) if len(outputs)<len(actions) else final()
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            log=root/"driver.log"
+            pointer=root/"pointer"
+            pointer.write_text("#!/usr/bin/python3\nimport json,os,sys\nwith open("+repr(str(log))+",'a') as f: f.write(json.dumps({'args':sys.argv[1:],'api_key_inherited':'OPENAI_API_KEY' in os.environ})+'\\n')\nif sys.argv[1]=='getdisplaygeometry': print('1 1')\n")
+            capture=root/"capture"
+            capture.write_text("#!/usr/bin/python3\nimport base64,sys\nsys.stdout.buffer.write(base64.b64decode("+repr(FIXTURE_JPEG)+"))\n")
+            pointer.chmod(0o700)
+            capture.chmod(0o700)
+            config=f'computer_use = true\ncomputer_xdotool = {json.dumps(str(pointer))}\ncomputer_import = {json.dumps(str(capture))}\n'
+            async with Harness(model,extra=config) as h:
+                await h.initialize()
+                s=await h.session()
+                result=await h.prompt(s)
+                self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+                self.assertEqual(len(h.permissions),len(actions))
+                self.assertTrue(any(u.get("params",{}).get("update",{}).get("sessionUpdate")=="tool_call_update" and any(c.get("content",{}).get("type")=="image" for c in u["params"]["update"].get("content",[])) for u in h.updates))
+                await h.rpc("_harness/session/unload",{"sessionId":s})
+                loaded=await h.rpc("session/load",{"sessionId":s,"cwd":str(h.workspace),"mcpServers":[]})
+                self.assertNotIn("error",loaded,loaded)
+            entries=[json.loads(line) for line in log.read_text().splitlines()]
+            self.assertTrue(all(not x["api_key_inherited"] for x in entries))
+            self.assertIn(["type","--clearmodifiers","--delay","0","--",actions[4]["text"]],[x["args"] for x in entries])
+
+    async def test_computer_disabled_readonly_and_denied_cannot_start_backend(self):
+        for extra,mode,allow,expected_permissions in [("","code",True,0),("computer_use = true\n","plan",True,0),("computer_use = true\n","code",False,1)]:
+            async def model(body):
+                if any(i.get("type")=="function_call_output" for i in body["input"]): return final()
+                return response([call("computer_use",{"action":"screenshot"})])
+            async with Harness(model,extra=extra+'computer_xdotool = "/nonexistent/must-not-execute"\n',allow=allow) as h:
+                await h.initialize()
+                s=await h.session()
+                await h.rpc("session/set_mode",{"sessionId":s,"modeId":mode})
+                result=await h.prompt(s)
+                self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+                self.assertEqual(len(h.permissions),expected_permissions)
+                self.assertNotIn("backend unavailable",json.dumps(h.requests))
+
+    async def test_mcp_http_json_sse_pagination_and_negotiated_headers(self):
+        methods=[]
+        async def remote(reader,writer):
+            try:
+                await reader.readline()
+                headers={}
+                while (line:=await reader.readline()) != b"\r\n":
+                    if not line: return
+                    key,value=line.decode().split(":",1)
+                    headers[key.lower()]=value.strip()
+                body=json.loads(await reader.readexactly(int(headers["content-length"])))
+                methods.append(body["method"])
+                assert "application/json" in headers["accept"] and "text/event-stream" in headers["accept"]
+                assert headers["authorization"]=="Bearer fixture-only"
+                if body["method"]!="initialize":
+                    assert headers["mcp-session-id"]=="fixture-session"
+                    assert headers["mcp-protocol-version"]=="2025-06-18"
+                if body["method"]=="notifications/initialized":
+                    writer.write(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                else:
+                    if body["method"]=="initialize":
+                        result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"remote","version":"1"}}
+                    elif body["method"]=="tools/list":
+                        result={"tools":[]} if "cursor" in body["params"] else {"tools":[{"name":"echo","description":"Fixture","inputSchema":{"type":"object","properties":{}}}],"nextCursor":"page2"}
+                    else:
+                        result={"content":[{"type":"text","text":"http MCP result"}],"structuredContent":{"ok":True}}
+                    frame={"jsonrpc":"2.0","id":body["id"],"result":result}
+                    sse=body["method"]=="tools/call"
+                    data=(("data: "+json.dumps(frame)+"\n\n") if sse else json.dumps(frame)).encode()
+                    mime="text/event-stream" if sse else "application/json"
+                    writer.write(f"HTTP/1.1 200 OK\r\nMcp-Session-Id: fixture-session\r\nContent-Type: {mime}\r\nContent-Length: {len(data)}\r\nConnection: close\r\n\r\n".encode()+data)
+                await writer.drain()
+            finally:
+                writer.close()
+        async def model(body):
+            if any(i.get("type")=="function_call_output" for i in body["input"]):
+                self.assertIn("http MCP result",json.dumps(body["input"]))
+                return final()
+            return response([call(mcp_tool(body,"mcp_remote_echo_"),{})])
+        server=await asyncio.start_server(remote,"127.0.0.1",0)
+        try:
+            async with Harness(model) as h:
+                await h.initialize()
+                new=await h.rpc("session/new",{"cwd":str(h.workspace),"mcpServers":[{"name":"remote","type":"http","url":f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/mcp","headers":[{"name":"Authorization","value":"Bearer fixture-only"}]}]})
+                result=await h.prompt(new["result"]["sessionId"])
+                self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+                self.assertEqual(len(h.permissions),1)
+        finally:
+            server.close()
+            await server.wait_closed()
+        self.assertEqual(methods,["initialize","notifications/initialized","tools/list","tools/list","tools/call"])
+
+    async def test_mcp_stdio_lazy_shared_approved_and_environment_isolated(self):
+        async def model(body):
+            self.assertTrue(any(t["name"].startswith("mcp_fixture_echo_") for t in body["tools"]))
+            if any(i.get("type")=="function_call_output" for i in body["input"]):
+                self.assertIn("hello MCP",json.dumps(body["input"]))
+                return final()
+            return response([call(mcp_tool(body,"mcp_fixture_echo_"),{"text":"hello MCP"})])
+        async with Harness(model) as h:
+            await h.initialize()
+            log=h.root/"mcp.log"
+            servers=[{"name":"fixture","command":sys.executable,"args":[str(Path(__file__).with_name("mcp_server.py")),str(log)],"env":[{"name":"MCP_FIXTURE_VALUE","value":"configured"}]}]
+            sessions=[]
+            for _ in range(2):
+                result=await h.rpc("session/new",{"cwd":str(h.workspace),"mcpServers":servers})
+                self.assertNotIn("error",result,result)
+                sessions.append(result["result"]["sessionId"])
+            self.assertFalse(log.exists(),"MCP processes must start lazily")
+            for s in sessions:
+                result=await h.prompt(s)
+                self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+            entries=[json.loads(x) for x in log.read_text().splitlines()]
+            self.assertEqual(sum(x["method"]=="initialize" for x in entries),1)
+            self.assertEqual(sum(x["method"]=="tools/call" for x in entries),2)
+            self.assertEqual(len({x["pid"] for x in entries}),1)
+            self.assertTrue(all(not x["api_key_inherited"] and x["explicit_env"]=="configured" for x in entries))
+            self.assertEqual(len(h.permissions),2)
+
+    async def test_mcp_denial_never_invokes_remote_tool_and_plan_does_not_connect(self):
+        async def model(body):
+            if any(i.get("type")=="function_call_output" for i in body["input"]): return final()
+            if any(t["name"].startswith("mcp_") for t in body["tools"]):
+                return response([call(mcp_tool(body,"mcp_fixture_echo_"),{"text":"must not execute"})])
+            return final()
+        async with Harness(model,allow=False) as h:
+            await h.initialize()
+            log=h.root/"mcp.log"
+            servers=[{"name":"fixture","command":sys.executable,"args":[str(Path(__file__).with_name("mcp_server.py")),str(log)],"env":[]}]
+            new=await h.rpc("session/new",{"cwd":str(h.workspace),"mcpServers":servers})
+            s=new["result"]["sessionId"]
+            await h.rpc("session/set_mode",{"sessionId":s,"modeId":"plan"})
+            await h.prompt(s)
+            self.assertFalse(log.exists())
+            await h.rpc("session/set_mode",{"sessionId":s,"modeId":"code"})
+            await h.prompt(s)
+            self.assertNotIn('"method": "tools/call"',log.read_text())
+
     async def test_sse_accepts_missing_mime_but_rejects_explicit_html(self):
         async def model(_): return final("LUNA_OK")
         for mime in (None,"Text/Event-Stream; charset=utf-8"):

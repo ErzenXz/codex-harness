@@ -2,6 +2,7 @@ use crate::{
     agent::AgentContext,
     config::Config,
     jobs::Jobs,
+    mcp::{Pool as McpPool, Servers as McpServers},
     provider::Provider,
     session::{Session, Store, Turn},
     tools::string,
@@ -104,6 +105,7 @@ struct Slot {
     busy: Arc<Semaphore>,
     cancel: Mutex<CancellationToken>,
     jobs: Jobs,
+    mcp: Arc<McpServers>,
 }
 
 pub struct Server {
@@ -116,6 +118,8 @@ pub struct Server {
     agents: Arc<Semaphore>,
     searches: Arc<Semaphore>,
     shutdown: CancellationToken,
+    mcp_pool: Arc<McpPool>,
+    desktop: Arc<crate::computer::Desktop>,
 }
 
 impl Server {
@@ -131,6 +135,7 @@ impl Server {
         }
         let store = Store::new(config.state_dir.join("sessions")).await?;
         let provider = Provider::new(&config)?;
+        let mcp_pool = Arc::new(McpPool::new(config.max_mcp_connections));
         Ok(Self {
             agents: Arc::new(Semaphore::new(config.max_subagents)),
             searches: Arc::new(Semaphore::new(config.max_searches)),
@@ -141,6 +146,8 @@ impl Server {
             sessions: Mutex::new(HashMap::new()),
             initialized: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
+            mcp_pool,
+            desktop: Arc::new(crate::computer::Desktop::default()),
         })
     }
 
@@ -153,7 +160,7 @@ impl Server {
             self.initialized.store(true, Ordering::Release);
             return Ok(
                 json!({"protocolVersion":1,"agentInfo":{"name":"codex-harness","version":env!("CARGO_PKG_VERSION"),"title":"Codex Harness"},
-                "agentCapabilities":{"loadSession":true,"promptCapabilities":{},"mcpCapabilities":{},"_meta":{"harness":{"tasks":true,"boundedContext":true}}},
+                "agentCapabilities":{"loadSession":true,"promptCapabilities":{},"mcpCapabilities":{"http":true,"sse":false},"_meta":{"harness":{"tasks":true,"boundedContext":true,"computerUse":self.config.computer_use}}},
                 "authMethods":[{"id":"chatgpt","name":"ChatGPT subscription","description":"Run codex-harness login before starting the agent"},{"id":"api_key","name":"Provider API key","description":"Set the configured api_key_env environment variable"}]}),
             );
         }
@@ -173,12 +180,13 @@ impl Server {
                 Ok(json!({}))
             }
             "session/new" | "session/load" => {
-                ensure!(
-                    params["mcpServers"].as_array().is_none_or(Vec::is_empty),
-                    "MCP server connections are not implemented in this release; pass an empty mcpServers array"
-                );
                 let mut workspace = Workspace::new(Path::new(string(&params, "cwd")?)).await?;
                 workspace.protect(self.config.state_dir.clone());
+                let mcp = Arc::new(McpServers::parse(
+                    &params["mcpServers"],
+                    &workspace.root,
+                    self.mcp_pool.clone(),
+                )?);
                 let session = if method == "session/load" {
                     self.store
                         .load(Uuid::parse_str(string(&params, "sessionId")?)?, &workspace)
@@ -195,6 +203,7 @@ impl Server {
                     busy: Arc::new(Semaphore::new(0)),
                     cancel: Mutex::new(self.shutdown.child_token()),
                     jobs: Jobs::new(self.config.max_jobs, self.config.tool_output_bytes),
+                    mcp,
                 });
                 let mut sessions = self.sessions.lock().await;
                 ensure!(!sessions.contains_key(&id), "Session already loaded");
@@ -319,6 +328,8 @@ impl Server {
             peer: self.peer.clone(),
             workspace: slot.workspace.clone(),
             jobs: slot.jobs.clone(),
+            mcp: slot.mcp.clone(),
+            desktop: self.desktop.clone(),
             agents: self.agents.clone(),
             searches: self.searches.clone(),
             session_id: session.id.to_string(),
@@ -329,8 +340,16 @@ impl Server {
             cancel: cancel.clone(),
         };
         let instructions = crate::agent::instructions(&ctx).await?;
+        let toolset = match crate::agent::prepare(&ctx).await {
+            Ok(toolset) => toolset,
+            Err(_) if cancel.is_cancelled() => return Ok(json!({"stopReason":"cancelled"})),
+            Err(error) => return Err(error),
+        };
         let user = json!({"role":"user","content":text});
-        let reserved = serde_json::to_vec(&user)?.len() + instructions.len() + 512;
+        let reserved = serde_json::to_vec(&user)?.len()
+            + instructions.len()
+            + serde_json::to_vec(&toolset.definitions)?.len()
+            + 512;
         ensure!(
             reserved <= self.config.context_bytes,
             "Prompt and project instructions exceed context budget"
@@ -341,7 +360,8 @@ impl Server {
         }
         let start = items.len();
         items.push(user);
-        let result = crate::agent::run_with_instructions(&ctx, &mut items, instructions).await;
+        let result =
+            crate::agent::run_with_instructions(&ctx, &mut items, instructions, toolset).await;
         // Save complete exchanges only; interrupted responses never enter model history.
         let mut turn = items.split_off(start);
         repair_calls(&mut turn);
@@ -403,12 +423,13 @@ impl Server {
                         .and_then(|args| serde_json::from_str::<Value>(args).ok());
                     self.peer.update(&session.id.to_string(),json!({"sessionUpdate":"tool_call","toolCallId":item["call_id"],"title":item["name"],"kind":"other","status":"in_progress","rawInput":input})).await?;
                 } else if item["type"] == "function_call_output" {
-                    let text = item["output"].as_str().unwrap_or_default();
-                    let output = serde_json::from_str::<Value>(text).ok();
-                    let failed = output
-                        .as_ref()
-                        .is_some_and(|output| output.get("error").is_some());
-                    self.peer.update(&session.id.to_string(),json!({"sessionUpdate":"tool_call_update","toolCallId":item["call_id"],"status":if failed {"failed"} else {"completed"},"content":[{"type":"content","content":{"type":"text","text":text}}]})).await?;
+                    let text = crate::multimodal::text(&item["output"]);
+                    let output = serde_json::from_str::<Value>(&text).ok();
+                    let failed = text.starts_with("Tool reported an error.")
+                        || output
+                            .as_ref()
+                            .is_some_and(|output| output.get("error").is_some());
+                    self.peer.update(&session.id.to_string(),json!({"sessionUpdate":"tool_call_update","toolCallId":item["call_id"],"status":if failed {"failed"} else {"completed"},"content":crate::multimodal::acp_content(&item["output"])})).await?;
                 }
                 if let Some(role) = item["role"].as_str() {
                     let text = if let Some(text) = item["content"].as_str() {

@@ -1,0 +1,11 @@
+# Trusted launcher configuration; do not enable native desktop access by default.
+auth = "chatgpt"
+model = "gpt-6-luna"
+reasoning_effort = "low"
+max_model_requests = 10
+max_subagents = 10
+computer_use = true
+computer_xdotool = "xdotool"
+computer_import = "import"
+# Requires Linux X11 plus xdotool/ImageMagick and DISPLAY/XAUTHORITY.
+# Every desktop action, including screenshots, still requires ACP approval.

@@ -17,6 +17,7 @@ pub struct Config {
     pub max_subagent_depth: usize,
     pub max_subagents: usize,
     pub max_model_requests: usize,
+    pub max_mcp_connections: usize,
     pub max_searches: usize,
     pub max_jobs: usize,
     pub max_sessions: usize,
@@ -25,6 +26,9 @@ pub struct Config {
     pub tool_output_bytes: usize,
     pub command_timeout_secs: u64,
     pub request_timeout_secs: u64,
+    pub computer_use: bool,
+    pub computer_xdotool: String,
+    pub computer_import: String,
 }
 
 impl Default for Config {
@@ -48,6 +52,7 @@ impl Default for Config {
             max_subagent_depth: 2,
             max_subagents: 256,
             max_model_requests: 256,
+            max_mcp_connections: 32,
             max_searches: 8,
             max_jobs: 16,
             max_sessions: 256,
@@ -56,6 +61,9 @@ impl Default for Config {
             tool_output_bytes: 32 * 1024,
             command_timeout_secs: 120,
             request_timeout_secs: 300,
+            computer_use: false,
+            computer_xdotool: "xdotool".into(),
+            computer_import: "import".into(),
         }
     }
 }
@@ -84,6 +92,16 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=256).contains(&self.max_mcp_connections),
+            "max_mcp_connections must be 1..=256"
+        );
+        for program in [&self.computer_xdotool, &self.computer_import] {
+            ensure!(
+                !program.is_empty() && program.len() <= 4096 && !program.contains('\0'),
+                "Invalid computer backend executable"
+            );
+        }
         ensure!(
             self.state_dir.is_absolute() && self.state_dir.parent().is_some(),
             "state_dir must be absolute and cannot be a filesystem root"

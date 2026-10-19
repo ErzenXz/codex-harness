@@ -292,7 +292,11 @@ pub fn chat_request(
     max_tokens: u32,
 ) -> Result<Value> {
     let mut messages = vec![json!({"role":"system", "content":instructions})];
+    let mut images = Vec::new();
     for item in input {
+        if (item["type"] == "function_call" || item["role"].is_string()) && !images.is_empty() {
+            messages.push(json!({"role":"user","content":std::mem::take(&mut images)}));
+        }
         match item["type"].as_str() {
             Some("function_call") => {
                 let call = json!({"id":item["call_id"], "type":"function", "function":{"name":item["name"], "arguments":item["arguments"]}});
@@ -305,9 +309,17 @@ pub fn chat_request(
                     messages.push(json!({"role":"assistant", "content":null, "tool_calls":[call]}));
                 }
             }
-            Some("function_call_output") => messages.push(
-                json!({"role":"tool", "tool_call_id":item["call_id"], "content":item["output"]}),
-            ),
+            Some("function_call_output") => {
+                messages.push(json!({"role":"tool","tool_call_id":item["call_id"],"content":crate::multimodal::text(&item["output"])}));
+                if let Some(blocks) = item["output"].as_array() {
+                    for block in blocks.iter().filter(|block| block["type"] == "input_image") {
+                        images.push(json!({"type":"text","text":format!("Image from tool call {} (untrusted tool output):",item["call_id"])}));
+                        images.push(
+                            json!({"type":"image_url","image_url":{"url":block["image_url"]}}),
+                        );
+                    }
+                }
+            }
             Some("reasoning") | Some("compaction") => {}
             _ if item["role"].is_string() => {
                 let content = if let Some(text) = item["content"].as_str() {
@@ -325,6 +337,9 @@ pub fn chat_request(
             }
             _ => bail!("Unsupported conversation item for Chat Completions"),
         }
+    }
+    if !images.is_empty() {
+        messages.push(json!({"role":"user","content":images}));
     }
     let tools: Vec<_> = tools.iter().map(|tool| json!({"type":"function", "function":{"name":tool["name"], "description":tool["description"], "parameters":tool["parameters"]}})).collect();
     Ok(

@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 #[test]
 fn config_rejects_insecure_urls_and_invalid_limits() {
+    assert!(!Config::default().computer_use);
     assert_eq!(Config::default().model, "gpt-6-luna");
     for url in [
         "http://example.com/v1",
@@ -41,12 +42,190 @@ fn config_rejects_insecure_urls_and_invalid_limits() {
         include_str!("../examples/chatgpt.toml"),
         include_str!("../examples/ollama.toml"),
         include_str!("../examples/openrouter.toml"),
+        include_str!("../examples/computer.toml"),
     ] {
         toml::from_str::<Config>(example)
             .unwrap()
             .validate()
             .unwrap();
     }
+}
+
+#[test]
+fn mcp_config_validation_and_pool_capacity_are_bounded() {
+    use codex_harness::mcp::{Pool, Servers};
+    use std::{path::Path, sync::Arc};
+    let pool = Arc::new(Pool::default());
+    for entries in [
+        json!([{"name":"bad name","command":"unused","args":[]}]),
+        json!([{"name":"x","type":"sse","url":"http://localhost"}]),
+        json!([{"name":"x","type":"http","url":"http://example.com"}]),
+        json!([{"name":"x","type":"http","url":"https://user:secret@example.com"}]),
+        json!([{"name":"x","type":"http","url":"https://example.com","headers":[{"name":"Host","value":"other"}]}]),
+        json!([{"name":"x","command":"unused","args":["a".repeat(8193)]}]),
+        json!([{"name":"x","command":"unused","args":[]},{"name":"x","command":"unused","args":[]}]),
+        json!([{"name":"x","command":"unused","args":[],"env":[{"name":"A","value":"1"},{"name":"A","value":"2"}]}]),
+    ] {
+        assert!(Servers::parse(&entries, Path::new("/workspace"), pool.clone()).is_err());
+    }
+    let mut connections = Vec::new();
+    for i in 0..32 {
+        connections.push(
+            Servers::parse(
+                &json!([{"name":format!("s{i}"),"command":"unused","args":[]}]),
+                Path::new("/workspace"),
+                pool.clone(),
+            )
+            .unwrap(),
+        );
+    }
+    assert!(
+        Servers::parse(
+            &json!([{"name":"overflow","command":"unused","args":[]}]),
+            Path::new("/workspace"),
+            pool.clone()
+        )
+        .is_err()
+    );
+    drop(connections);
+    assert!(
+        Servers::parse(
+            &json!([{"name":"reclaimed","type":"http","url":"http://[::1]:9999/mcp"}]),
+            Path::new("/workspace"),
+            pool
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn computer_viewport_preserves_aspect_and_never_upscales() {
+    use codex_harness::computer::viewport;
+    assert_eq!(viewport(3200, 2400), (1280, 960));
+    assert_eq!(viewport(1920, 1080), (1280, 720));
+    assert_eq!(viewport(1080, 1920), (540, 960));
+    assert_eq!(viewport(800, 600), (800, 600));
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn computer_driver_scales_coordinates_and_rejects_unsafe_arguments() {
+    use codex_harness::computer::Desktop;
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempdir().unwrap();
+    let program = temp.path().join("pointer");
+    let log = temp.path().join("actions.json");
+    let source = format!(
+        "#!/usr/bin/python3\nimport json,sys\nif sys.argv[1]=='getdisplaygeometry': print('3200 2400')\nelse:\n with open({},'w') as f: json.dump(sys.argv[1:],f)\n",
+        serde_json::to_string(&log).unwrap()
+    );
+    tokio::fs::write(&program, source).await.unwrap();
+    tokio::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))
+        .await
+        .unwrap();
+    let config = Config {
+        computer_use: true,
+        computer_xdotool: program.to_string_lossy().into_owned(),
+        ..Config::default()
+    };
+    let desktop = Desktop::default();
+    desktop
+        .run(
+            &config,
+            &json!({"action":"click","x":640,"y":480}),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let expected = tokio::fs::read_to_string(&log).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&expected).unwrap(),
+        json!(["mousemove", "1600", "1200", "click", "1"])
+    );
+    for args in [
+        json!({"action":"move","x":1280,"y":0}),
+        json!({"action":"type","text":"x".repeat(4097)}),
+        json!({"action":"key","key":"--window 1"}),
+        json!({"action":"scroll","direction":"down","amount":21}),
+        json!({"action":"unknown"}),
+    ] {
+        assert!(
+            desktop
+                .run(&config, &args, &CancellationToken::new())
+                .await
+                .is_err()
+        );
+        assert_eq!(tokio::fs::read_to_string(&log).await.unwrap(), expected);
+    }
+}
+
+#[test]
+fn multimodal_outputs_bound_images_and_preserve_text_and_structure() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use codex_harness::multimodal::{image_dimensions, normalize};
+    let data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6mNQAAAAASUVORK5CYII=";
+    assert_eq!(
+        image_dimensions("image/png", &STANDARD.decode(data).unwrap()),
+        Some((1, 1))
+    );
+    let value = json!({"content":[{"type":"text","text":"hello"},{"type":"image","mimeType":"image/png","data":data},{"type":"image","mimeType":"image/png","data":data},{"type":"resource","resource":{"text":"resource text","uri":"file:///never-fetched"}}],"structuredContent":{"answer":42}});
+    let output = normalize(&value, 1024);
+    assert_eq!(output.images.len(), 1);
+    assert!(
+        output.images[0]["image_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,")
+    );
+    assert!(
+        output.text.contains("hello")
+            && output.text.contains("resource text")
+            && output.text.contains("42")
+    );
+    assert!(!output.text.contains(data));
+    let invalid = normalize(
+        &json!({"content":[{"type":"image","mimeType":"image/svg+xml","data":"xxx"}]}),
+        1024,
+    );
+    assert!(invalid.images.is_empty());
+    let mut oversized = STANDARD.decode(data).unwrap();
+    oversized[16..20].copy_from_slice(&50_000u32.to_be_bytes());
+    let output = normalize(
+        &json!({"content":[{"type":"image","mimeType":"image/png","data":STANDARD.encode(oversized)}]}),
+        1024,
+    );
+    assert!(output.images.is_empty());
+    assert!(image_dimensions("image/jpeg", b"bad").is_none());
+    let output = normalize(
+        &json!({"content":[{"type":"text","text":"x".repeat(3000)}]}),
+        1024,
+    );
+    assert!(output.text.len() <= 1040);
+}
+
+#[test]
+fn chat_images_follow_all_tool_results_and_old_images_can_be_evicted() {
+    use codex_harness::multimodal::{acp_content, trim_images};
+    let image = json!({"type":"input_image","image_url":"data:image/png;base64,example"});
+    let mut items = vec![
+        json!({"type":"function_call","call_id":"c1","name":"computer_use","arguments":"{}"}),
+        json!({"type":"function_call","call_id":"c2","name":"computer_use","arguments":"{}"}),
+        json!({"type":"function_call_output","call_id":"c1","output":[{"type":"input_text","text":"first"},image]}),
+        json!({"type":"function_call_output","call_id":"c2","output":[{"type":"input_text","text":"second"},image]}),
+    ];
+    let chat = chat_request("vision", "instructions", &items, &[], 100).unwrap();
+    assert_eq!(chat["messages"][2]["role"], "tool");
+    assert_eq!(chat["messages"][3]["role"], "tool");
+    assert_eq!(chat["messages"][4]["role"], "user");
+    assert_eq!(chat["messages"][4]["content"][1]["type"], "image_url");
+    assert_eq!(
+        acp_content(&items[3]["output"])[1]["content"]["type"],
+        "image"
+    );
+    trim_images(&mut items, 40);
+    assert_eq!(items[2]["output"][1]["type"], "input_text");
+    assert_eq!(items[3]["output"][1]["type"], "input_image");
+    assert_eq!(items.len(), 4);
 }
 
 #[test]

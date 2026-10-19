@@ -285,9 +285,9 @@ async fn drain(mut reader: impl AsyncRead + Unpin, job: Arc<Job>, limit: usize) 
     }
 }
 
-struct ProcessGroup(Option<u32>);
+pub(crate) struct ProcessGroup(pub(crate) Option<u32>);
 impl ProcessGroup {
-    fn kill(&mut self) {
+    pub(crate) fn kill(&mut self) {
         #[cfg(unix)]
         if let Some(pid) = self.0.take() {
             // Child is started in its own process group; kill descendants, not the host.

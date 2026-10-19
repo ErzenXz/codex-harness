@@ -67,6 +67,7 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
     ensure!(args.is_object(), "Tool arguments must be an object");
     ensure!(!ctx.cancel.is_cancelled(), "Cancelled");
     match name {
+        "computer_use" => crate::computer::execute(ctx, args, call_id).await,
         "read_file" => {
             let path = ctx.workspace.resolve(string(args, "path")?, false).await?;
             ensure!(
