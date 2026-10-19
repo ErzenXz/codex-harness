@@ -1,0 +1,6 @@
+auth = "api_key"
+wire_api = "chat_completions"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+model = "openai/gpt-6-luna"
+reasoning_effort = "none"

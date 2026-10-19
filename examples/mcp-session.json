@@ -1,0 +1,17 @@
+{
+  "cwd": "/absolute/path/project",
+  "mcpServers": [
+    {
+      "name": "local",
+      "command": "/absolute/path/mcp-server",
+      "args": ["--stdio"],
+      "env": []
+    },
+    {
+      "name": "remote",
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": []
+    }
+  ]
+}

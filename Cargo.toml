@@ -1,0 +1,36 @@
+[package]
+name = "codex-harness"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A quiet, ACP-native Rust harness for OpenAI coding agents"
+license = "MIT"
+repository = "https://github.com/ErzenXz/codex-harness"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+futures-util = "0.3"
+globset = "0.4"
+ignore = "0.4"
+libc = "0.2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "io-std", "io-util", "fs", "process", "sync", "time", "signal", "net"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[lints.clippy]
+await_holding_lock = "deny"
