@@ -64,7 +64,7 @@ pub async fn instructions(ctx: &AgentContext) -> Result<String> {
         "{INSTRUCTIONS}\nWorking directory: {}\nMode: {}\n{project}",
         ctx.workspace.root.display(),
         if ctx.read_only {
-            "read-only; do not modify files or run shell commands"
+            "read-only; read_file, glob, grep, and read-only subagents are allowed. Do not modify files or run shell commands"
         } else {
             "code"
         }

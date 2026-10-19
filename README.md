@@ -15,7 +15,7 @@ Requires Rust 1.88+ and, preferably, [ripgrep](https://github.com/BurntSushi/rip
 ```sh
 cargo build --release --locked
 ./target/release/codex-harness login # explicit interactive ChatGPT device sign-in
-./target/release/codex-harness --acp # stdio; intentionally silent until ACP input
+./target/release/codex-harness --acp --config examples/chatgpt.toml # subscription; Luna low
 ```
 
 An ACP launcher can use:
@@ -31,6 +31,13 @@ startup/transport diagnostics go to stderr. Empty stdin/EOF shuts the agent down
 The launcher owns daemonization; this executable does not fork away from stdio.
 
 ## Authentication and providers
+
+The default model is [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Override it with `model` in the config or `OPENAI_MODEL` in the launcher environment.
+There is no automatic fallback to another model. Availability through subscription
+sign-in depends on your ChatGPT plan. API token prices do not describe subscription
+quotas. With GPT-6 Luna function calling over Chat Completions, set
+`reasoning_effort = "none"`; Responses supports the model's reasoning modes.
 
 ### ChatGPT subscription
 
@@ -50,8 +57,13 @@ refresh is serialized in-process, not across independent processes.
 ChatGPT tokens can only be sent to the Codex backend, never a custom provider.
 The backend/device flow follows the open-source Codex contract, not a general
 subscription entitlement to the OpenAI Platform API. Upstream changes may require
-adapter updates. Live subscription login/model calls have not yet been verified
-for this repository.
+adapter updates. Device sign-in, streamed `gpt-6-luna` low responses, a read-only
+file-tool loop, and ten concurrent short ACP turns were verified on 2026-10-19.
+Forced token refresh and other providers have not been live-validated.
+
+The ChatGPT example selects low reasoning and caps simultaneous model requests
+and subagents at 10. Increase those limits only within your account allowance;
+concurrency limits do not impose a total-token or subscription-usage budget.
 
 ### OpenAI API key
 
@@ -191,3 +203,26 @@ python3 tests/benchmark.py --agents 256
 It reports startup, throughput/latency against a simulated 50 ms loopback model,
 Linux process RSS/high-water mark, and end-to-end native search over 10,000 files.
 Small synthetic conversations do not predict memory use for full coding sessions.
+
+### Bounded live validation (2026-10-19)
+
+Ten concurrent ACP sessions used ChatGPT subscription authentication with
+`gpt-6-luna`, low reasoning, and one model step each. Each answered a short,
+distinct source-code question from a provided excerpt; all ten completed with
+the expected answer and isolated case identifier. No writes or shell calls were
+approved. This was not a ten-agent repository-editing or long-running soak test.
+
+| Measurement | Observed |
+| --- | ---: |
+| Total wall time | 3.133 s |
+| Per-agent latency p50 / p95 (nearest rank) | 1.270 / 3.133 s |
+| Idle / ten loaded sessions / peak sampled RSS | 5.07 / 5.30 / 8.46 MiB |
+| Maximum observed process threads | 9 |
+| Provider input / output tokens | 11,437 / 160 |
+| Provider-reported cached input tokens | 0 |
+
+A separate small, same-session read-tool/repeated-context check also reported
+zero cached tokens. These observations do not establish a general cache rate.
+The 256-agent benchmark above is entirely loopback/synthetic and consumes no
+subscription quota. Ten successful live turns do not establish 256-agent provider
+capacity, sustained throughput, rate limits, or full-session memory use.

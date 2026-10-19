@@ -39,7 +39,7 @@ impl Default for Config {
             auth: "auto".into(),
             wire_api: "responses".into(),
             api_key_env: "OPENAI_API_KEY".into(),
-            model: "gpt-5.4".into(),
+            model: "gpt-6-luna".into(),
             base_url: "https://api.openai.com/v1".into(),
             reasoning_effort: None,
             prompt_cache_retention: None,

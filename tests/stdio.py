@@ -29,8 +29,9 @@ def call(name, args, ident="call-1"):
 
 
 class Harness:
-    def __init__(self, handler, extra="", allow=True):
+    def __init__(self, handler, extra="", allow=True, content_type="text/event-stream"):
         self.handler, self.extra, self.allow = handler, extra, allow
+        self.content_type, self.request_headers = content_type, []
         self.pending, self.updates, self.unmatched, self.requests = {}, [], [], []
         self.active = self.peak_active = self.connections = 0
         self.tasks, self.writers = set(), set()
@@ -51,6 +52,7 @@ class Harness:
                     key, value = line.decode().split(":", 1)
                     headers[key.lower()] = value.strip()
                 body = json.loads(await reader.readexactly(int(headers["content-length"])))
+                self.request_headers.append(headers)
                 self.requests.append(body)
                 self.seen.set()
                 self.active += 1
@@ -58,7 +60,8 @@ class Harness:
                 try:
                     result = await self.handler(body)
                     payload = result.encode()
-                    writer.write(f"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {len(payload)}\r\n\r\n".encode())
+                    content_type = f"Content-Type: {self.content_type}\r\n" if self.content_type else ""
+                    writer.write(f"HTTP/1.1 200 OK\r\n{content_type}Content-Length: {len(payload)}\r\n\r\n".encode())
                     # Exercise SSE boundaries, not only whole events per network read.
                     for start in range(0, len(payload), 31):
                         writer.write(payload[start:start + 31])
@@ -155,6 +158,22 @@ class Harness:
 
 
 class StdioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sse_accepts_missing_mime_but_rejects_explicit_html(self):
+        async def model(_): return final("LUNA_OK")
+        for mime in (None,"Text/Event-Stream; charset=utf-8"):
+            with self.subTest(content_type=mime):
+                async with Harness(model,content_type=mime) as h:
+                    await h.initialize()
+                    result=await h.prompt(await h.session())
+                    self.assertEqual(result["result"]["stopReason"],"end_turn",result)
+                    self.assertEqual(h.request_headers[0]["accept"],"text/event-stream")
+        async def untrusted(_): return response([call("write_file",{"path":"bad.txt","content":"bad"})])
+        async with Harness(untrusted,content_type="text/html") as h:
+            await h.initialize()
+            self.assertIn("error",await h.prompt(await h.session()))
+            self.assertFalse(h.permissions)
+            self.assertFalse((h.workspace/"bad.txt").exists())
+
     async def test_silent_idle_and_malformed_messages_do_not_break_acp(self):
         async def model(_): return final()
         async with Harness(model) as h:
@@ -194,6 +213,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_approved_tool_loop_persistence_and_usage(self):
         async def model(body):
+            self.assertEqual(body["tool_choice"],"auto")
             if any(item.get("type") == "function_call_output" for item in body["input"]): return final()
             return response([call("write_file", {"path": "hello.rs", "content": "fn main() {}\n"})])
         async with Harness(model) as h:
@@ -346,11 +366,14 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
     async def test_chat_completions_stream_and_usage(self):
         async def model(body):
             self.assertIn("messages", body)
+            self.assertEqual(body["model"], "gpt-6-luna")
+            self.assertEqual(body["reasoning_effort"], "none")
+            self.assertNotIn("reasoning", body)
             chunks = [{"choices": [{"delta": {"content": "hello"}}]},
                       {"choices": [{"delta": {}, "finish_reason": "stop"}]},
                       {"choices": [], "usage": {"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 50}, "completion_tokens": 2}}]
             return "".join("data: " + json.dumps(chunk) + "\n\n" for chunk in chunks) + "data: [DONE]\n\n"
-        async with Harness(model, extra='wire_api = "chat_completions"\n') as h:
+        async with Harness(model, extra='wire_api = "chat_completions"\nreasoning_effort = "none"\n') as h:
             await h.initialize()
             result = await h.prompt(await h.session())
             self.assertEqual(result["result"]["stopReason"], "end_turn")

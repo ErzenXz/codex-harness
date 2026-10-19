@@ -63,7 +63,7 @@ impl Provider {
         let mut credentials = self.auth.credentials(&self.client, false).await?;
         let mut body = json!({
             "model": model, "instructions": instructions, "input": input, "tools": tools,
-            "stream": true, "store": false, "parallel_tool_calls": true,
+            "stream": true, "store": false, "parallel_tool_calls": true, "tool_choice":"auto",
             "max_output_tokens": self.config.max_output_tokens,
             "include": ["reasoning.encrypted_content"]
         });
@@ -84,6 +84,9 @@ impl Provider {
                 tools,
                 self.config.max_output_tokens,
             )?;
+            if let Some(effort) = &self.config.reasoning_effort {
+                body["reasoning_effort"] = json!(effort);
+            }
         }
         if credentials.account_id.is_some()
             || credentials.base_url.trim_end_matches('/') == "https://api.openai.com/v1"
@@ -109,6 +112,7 @@ impl Provider {
                     "{}/{endpoint}",
                     credentials.base_url.trim_end_matches('/')
                 ))
+                .header("Accept", "text/event-stream")
                 .json(&body);
             if let Some(key) = &credentials.bearer {
                 request = request.bearer_auth(key);
@@ -157,8 +161,11 @@ impl Provider {
             response
                 .headers()
                 .get("content-type")
-                .and_then(|h| h.to_str().ok())
-                .is_some_and(|h| h.starts_with("text/event-stream")),
+                .is_none_or(|h| h
+                    .to_str()
+                    .is_ok_and(|mime| mime.split(';').next().is_some_and(|mime| mime
+                        .trim()
+                        .eq_ignore_ascii_case("text/event-stream")))),
             "Provider did not return an SSE stream"
         );
         let mut stream = response.bytes_stream();

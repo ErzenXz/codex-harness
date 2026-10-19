@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 #[test]
 fn config_rejects_insecure_urls_and_invalid_limits() {
+    assert_eq!(Config::default().model, "gpt-6-luna");
     for url in [
         "http://example.com/v1",
         "https://user:password@example.com",
