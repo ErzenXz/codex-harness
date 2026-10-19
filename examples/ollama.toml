@@ -1,0 +1,6 @@
+auth = "none"
+wire_api = "chat_completions"
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen3-coder"
+max_model_requests = 2
+# Install/pull an appropriate local tool-capable model separately.

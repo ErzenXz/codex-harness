@@ -1,0 +1,8 @@
+auth = "chatgpt"
+model = "gpt-5.4"
+wire_api = "responses"
+max_model_requests = 256
+max_subagents = 256
+max_sessions = 256
+max_searches = 8
+# Choose concurrency that fits your plan's actual limits.
