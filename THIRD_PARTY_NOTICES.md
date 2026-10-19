@@ -8,7 +8,7 @@ not a copy of proprietary Claude Code internals.
 - [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses)
 - [OpenAI Codex authentication](https://developers.openai.com/codex/auth)
 - [Open-source Codex device flow](https://github.com/openai/codex/blob/main/codex-rs/login/src/device_code_auth.rs)
-- [Open-source Codex OAuth client](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth.rs)
+- [Open-source Codex OAuth client](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/manager.rs)
 - [OpenAI prompt caching](https://platform.openai.com/docs/guides/prompt-caching)
 
 The ChatGPT adapter uses the public client identifier and endpoints used by the

@@ -84,7 +84,10 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.state_dir.is_absolute(), "state_dir must be absolute");
+        ensure!(
+            self.state_dir.is_absolute() && self.state_dir.parent().is_some(),
+            "state_dir must be absolute and cannot be a filesystem root"
+        );
         if let Some(retention) = &self.prompt_cache_retention {
             ensure!(
                 ["in-memory", "24h"].contains(&retention.as_str()),

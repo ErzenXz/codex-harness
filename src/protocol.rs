@@ -1,5 +1,5 @@
 use crate::{
-    agent::{AgentContext, run_agent},
+    agent::AgentContext,
     config::Config,
     jobs::Jobs,
     provider::Provider,
@@ -177,7 +177,8 @@ impl Server {
                     params["mcpServers"].as_array().is_none_or(Vec::is_empty),
                     "MCP server connections are not implemented in this release; pass an empty mcpServers array"
                 );
-                let workspace = Workspace::new(Path::new(string(&params, "cwd")?)).await?;
+                let mut workspace = Workspace::new(Path::new(string(&params, "cwd")?)).await?;
+                workspace.protect(self.config.state_dir.clone());
                 let session = if method == "session/load" {
                     self.store
                         .load(Uuid::parse_str(string(&params, "sessionId")?)?, &workspace)
@@ -225,7 +226,6 @@ impl Server {
             "session/cancel" => {
                 let slot = self.slot(&params).await?;
                 slot.cancel.lock().await.cancel();
-                slot.jobs.cancel_all().await;
                 Ok(json!({}))
             }
             "session/set_mode" => {
@@ -313,12 +313,6 @@ impl Server {
             "Prompt exceeds context budget"
         );
         let mut session = slot.session.lock().await;
-        let mut items = session.context(self.config.context_bytes / 2);
-        if session.dropped_turns > 0 {
-            items.insert(0,json!({"role":"developer","content":format!("{} older completed turns were evicted to bound memory. Do not assume their contents; re-read the current workspace as needed.",session.dropped_turns)}));
-        }
-        let start = items.len();
-        items.push(json!({"role":"user","content":text}));
         let ctx = AgentContext {
             config: self.config.clone(),
             provider: self.provider.clone(),
@@ -334,13 +328,28 @@ impl Server {
             read_only: session.mode == "plan",
             cancel: cancel.clone(),
         };
-        let result = run_agent(&ctx, &mut items).await;
+        let instructions = crate::agent::instructions(&ctx).await?;
+        let user = json!({"role":"user","content":text});
+        let reserved = serde_json::to_vec(&user)?.len() + instructions.len() + 512;
+        ensure!(
+            reserved <= self.config.context_bytes,
+            "Prompt and project instructions exceed context budget"
+        );
+        let mut items = session.context(self.config.context_bytes - reserved);
+        if session.dropped_turns > 0 {
+            items.insert(0,json!({"role":"developer","content":format!("{} older completed turns were evicted to bound memory. Do not assume their contents; re-read the current workspace as needed.",session.dropped_turns)}));
+        }
+        let start = items.len();
+        items.push(user);
+        let result = crate::agent::run_with_instructions(&ctx, &mut items, instructions).await;
         // Save complete exchanges only; interrupted responses never enter model history.
         let mut turn = items.split_off(start);
         repair_calls(&mut turn);
         session.turns.push_back(Turn { items: turn });
         session.context(self.config.context_bytes);
-        self.store.save(&session).await?;
+        let saved = self.store.save(&session).await;
+        *slot.cancel.lock().await = self.shutdown.child_token();
+        saved?;
         if cancel.is_cancelled() {
             return Ok(json!({"stopReason":"cancelled"}));
         }
@@ -388,6 +397,19 @@ impl Server {
     async fn replay(&self, session: &Session) -> Result<()> {
         for turn in &session.turns {
             for item in &turn.items {
+                if item["type"] == "function_call" {
+                    let input = item["arguments"]
+                        .as_str()
+                        .and_then(|args| serde_json::from_str::<Value>(args).ok());
+                    self.peer.update(&session.id.to_string(),json!({"sessionUpdate":"tool_call","toolCallId":item["call_id"],"title":item["name"],"kind":"other","status":"in_progress","rawInput":input})).await?;
+                } else if item["type"] == "function_call_output" {
+                    let text = item["output"].as_str().unwrap_or_default();
+                    let output = serde_json::from_str::<Value>(text).ok();
+                    let failed = output
+                        .as_ref()
+                        .is_some_and(|output| output.get("error").is_some());
+                    self.peer.update(&session.id.to_string(),json!({"sessionUpdate":"tool_call_update","toolCallId":item["call_id"],"status":if failed {"failed"} else {"completed"},"content":[{"type":"content","content":{"type":"text","text":text}}]})).await?;
+                }
                 if let Some(role) = item["role"].as_str() {
                     let text = if let Some(text) = item["content"].as_str() {
                         text.to_owned()
@@ -430,7 +452,7 @@ pub fn repair_calls(items: &mut Vec<Value>) {
             .iter()
             .any(|v| v["type"] == "function_call_output" && v["call_id"] == id)
         {
-            items.push(json!({"type":"function_call_output","call_id":id,"output":"Tool was interrupted and not executed to completion. Inspect current state before retrying."}));
+            items.push(json!({"type":"function_call_output","call_id":id,"output":json!({"error":"Tool was interrupted and not executed to completion. Inspect current state before retrying."}).to_string()}));
         }
     }
 }
@@ -481,11 +503,13 @@ pub async fn serve(config: Config) -> Result<()> {
     });
     let mut reader = BufReader::new(tokio::io::stdin());
     let mut handlers = JoinSet::new();
+    let signal = shutdown_signal();
+    tokio::pin!(signal);
     let result: Result<()> = async {
         loop {
             let frame = tokio::select! {
                 biased;
-                _ = tokio::signal::ctrl_c() => break,
+                _ = &mut signal => break,
                 _ = peer.tx.closed() => break,
                 frame = read_frame(&mut reader) => frame?,
             };
@@ -577,4 +601,17 @@ pub async fn serve(config: Config) -> Result<()> {
 
 fn error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut terminate) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }

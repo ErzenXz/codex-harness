@@ -5,6 +5,7 @@ use tokio::io::AsyncReadExt;
 #[derive(Clone)]
 pub struct Workspace {
     pub root: PathBuf,
+    protected: Vec<PathBuf>,
 }
 
 impl Workspace {
@@ -12,7 +13,14 @@ impl Workspace {
         ensure!(path.is_absolute(), "Working directory must be absolute");
         let root = tokio::fs::canonicalize(path).await?;
         ensure!(root.is_dir(), "Working directory must be a directory");
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            protected: Vec::new(),
+        })
+    }
+
+    pub fn protect(&mut self, path: PathBuf) {
+        self.protected.push(path);
     }
 
     pub async fn resolve(&self, path: &str, create: bool) -> Result<PathBuf> {
@@ -44,7 +52,19 @@ impl Workspace {
             real.starts_with(&self.root),
             "Symlink escapes the workspace"
         );
-        let resolved = real.join(candidate.strip_prefix(existing)?);
+        let suffix = candidate.strip_prefix(existing)?;
+        let resolved = if suffix.as_os_str().is_empty() {
+            real
+        } else {
+            real.join(suffix)
+        };
+        if let Ok(metadata) = tokio::fs::metadata(&resolved).await {
+            ensure_private_file(&metadata)?;
+        }
+        ensure!(
+            !self.protected.iter().any(|path| resolved.starts_with(path)),
+            "Harness state is protected"
+        );
         let relative = resolved.strip_prefix(&self.root)?;
         for part in relative.components() {
             let name = part.as_os_str().to_string_lossy();
@@ -77,7 +97,9 @@ pub async fn read_bounded(path: &Path, limit: usize) -> Result<String> {
     #[cfg(unix)]
     options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     let file = options.open(path).await?;
-    ensure!(file.metadata().await?.is_file(), "Not a regular file");
+    let metadata = file.metadata().await?;
+    ensure!(metadata.is_file(), "Not a regular file");
+    ensure_private_file(&metadata)?;
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1).read_to_end(&mut bytes).await?;
     ensure!(!bytes.contains(&0), "Binary file is not supported");
@@ -99,4 +121,18 @@ pub fn truncate(text: &str, limit: usize) -> String {
         end -= 1;
     }
     format!("{}\n[truncated]", &text[..end])
+}
+
+pub fn ensure_private_file(metadata: &std::fs::Metadata) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        ensure!(
+            !metadata.is_file() || metadata.nlink() <= 1,
+            "Hard-linked files are not accessible through file tools"
+        );
+    }
+    #[cfg(not(unix))]
+    let _ = metadata;
+    Ok(())
 }

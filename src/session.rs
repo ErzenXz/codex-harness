@@ -39,8 +39,12 @@ impl Session {
 
     pub fn context(&mut self, budget: usize) -> Vec<Value> {
         // Drop only whole completed turns; never orphan a function-call output.
-        while self.turns.len() > 1 && self.bytes() > budget {
-            self.turns.pop_front();
+        let mut bytes = self.bytes();
+        while !self.turns.is_empty() && bytes > budget {
+            if let Some(turn) = self.turns.pop_front() {
+                bytes =
+                    bytes.saturating_sub(serde_json::to_vec(&turn).map_or(0, |bytes| bytes.len()));
+            }
             self.dropped_turns += 1;
         }
         self.turns

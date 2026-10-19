@@ -140,7 +140,7 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
                     call_id,
                     &format!("{name}: {}", path.display()),
                     "edit",
-                    json!({"path":path,"oldText":before,"newText":after}),
+                    json!({"path":path,"operation":name,"oldBytes":before.as_ref().map_or(0,String::len),"newBytes":after.len()}),
                     &ctx.cancel,
                 )
                 .await?;

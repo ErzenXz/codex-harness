@@ -129,6 +129,10 @@ Plan mode disables those tools, including in children. Permission denial is
 returned to the model; persistent deny policies should also be enforced by the
 client. File tools reject traversal, workspace/symlink escapes, credential paths,
 and harness state. Edits are not committed automatically.
+On Unix, hard-linked regular files are also excluded from file tools/search.
+Approval requests include path/operation/size metadata rather than unrelated old
+file contents. Model-supplied tool arguments remain visible in ACP tool updates;
+the ACP client is trusted, and this is not a general-purpose secret redactor.
 
 **This is not an OS sandbox.** An approved shell command can access the host and
 network, read the user's files, and run arbitrary programs. Shell environments are
@@ -137,6 +141,9 @@ files. Run untrusted work in a container/VM with restricted credentials. Filesys
 checks are defense in depth, not a race-proof capability sandbox. Unix shell task
 process groups are killed on cancellation/timeouts; Windows process-tree isolation
 is not implemented. Background jobs do not survive process restart.
+Prompt cancellation stops that turn and its children, not independent jobs from
+earlier completed turns. Cancel retained jobs by task ID, unload their session,
+or shut down the process. SIGINT/SIGTERM trigger orderly Unix shutdown.
 
 ## Protocol surface
 
@@ -173,3 +180,14 @@ cargo build --locked && python3 tests/stdio.py
 Tests use temporary workspaces and loopback SSE mocks; no paid model calls or
 credentials are needed. CI does not validate live subscription eligibility,
 model intelligence, real provider caching, or comparisons against other agents.
+
+Reproduce a release-mode local-overhead/concurrency/search benchmark:
+
+```sh
+cargo build --release --locked
+python3 tests/benchmark.py --agents 256
+```
+
+It reports startup, throughput/latency against a simulated 50 ms loopback model,
+Linux process RSS/high-water mark, and end-to-end native search over 10,000 files.
+Small synthetic conversations do not predict memory use for full coding sessions.

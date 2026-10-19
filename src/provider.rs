@@ -162,9 +162,10 @@ impl Provider {
             "Provider did not return an SSE stream"
         );
         let mut stream = response.bytes_stream();
-        let mut decoder = SseDecoder::default();
+        let mut decoder =
+            SseDecoder::with_limit((self.config.context_bytes + 65536).min(MAX_EVENT));
         let mut text = String::new();
-        let mut chat_stream = ChatStream::default();
+        let mut chat_stream = ChatStream::with_limit(self.config.context_bytes);
         let mut chat_usage = None;
         while let Some(chunk) = tokio::select! {
             biased;
@@ -190,9 +191,14 @@ impl Provider {
                         event.get("error").is_none(),
                         "Provider stream reported an error"
                     );
-                    if let Some(delta) = chat_stream.push(&event)? {
+                    let delta = chat_stream.push(&event)?;
+                    ensure!(
+                        text.len() + chat_stream.bytes + delta.as_ref().map_or(0, String::len)
+                            <= self.config.context_bytes,
+                        "Model output exceeds context limit"
+                    );
+                    if let Some(delta) = delta {
                         text.push_str(&delta);
-                        ensure!(text.len() <= MAX_EVENT, "Model output exceeds stream limit");
                         emit_text(peer, session_id, agent_id, &delta).await?;
                     }
                     continue;
@@ -201,7 +207,7 @@ impl Provider {
                     "response.output_text.delta" | "response.refusal.delta" => {
                         if let Some(delta) = event["delta"].as_str() {
                             ensure!(
-                                text.len() + delta.len() <= MAX_EVENT,
+                                text.len() + delta.len() <= self.config.context_bytes,
                                 "Model output exceeds stream limit"
                             );
                             text.push_str(delta);
@@ -214,11 +220,24 @@ impl Provider {
                             .await?;
                         let output = response["output"]
                             .as_array()
-                            .context("Missing response output")?
-                            .clone();
+                            .context("Missing response output")?;
                         ensure!(output.len() <= 128, "Too many model output items");
+                        ensure!(
+                            serde_json::to_vec(output)?.len() <= self.config.context_bytes,
+                            "Model output exceeds context limit"
+                        );
+                        for item in output {
+                            if item["type"] == "function_call" {
+                                ensure!(
+                                    item["arguments"]
+                                        .as_str()
+                                        .is_some_and(|args| args.len() <= 256 * 1024),
+                                    "Tool arguments exceed size limit"
+                                );
+                            }
+                        }
                         return Ok(Response {
-                            output,
+                            output: output.clone(),
                             text,
                             incomplete: event["type"] == "response.incomplete",
                         });
@@ -306,13 +325,28 @@ pub fn chat_request(
     )
 }
 
-#[derive(Default)]
 pub struct ChatStream {
     calls: std::collections::BTreeMap<u64, Value>,
     finish: Option<String>,
+    bytes: usize,
+    limit: usize,
+}
+
+impl Default for ChatStream {
+    fn default() -> Self {
+        Self::with_limit(MAX_EVENT)
+    }
 }
 
 impl ChatStream {
+    pub fn with_limit(limit: usize) -> Self {
+        Self {
+            calls: Default::default(),
+            finish: None,
+            bytes: 0,
+            limit,
+        }
+    }
     pub fn push(&mut self, event: &Value) -> Result<Option<String>> {
         let Some(choice) = event["choices"].as_array().and_then(|c| c.first()) else {
             return Ok(None);
@@ -335,6 +369,11 @@ impl ChatStream {
                     ("arguments", &delta["function"]["arguments"]),
                 ] {
                     if let Some(part) = part.as_str() {
+                        self.bytes += part.len();
+                        ensure!(
+                            self.bytes <= self.limit,
+                            "Tool payload exceeds context limit"
+                        );
                         let current = call[target].as_str().unwrap_or_default();
                         ensure!(
                             current.len() + part.len() <= 256 * 1024,
@@ -345,7 +384,10 @@ impl ChatStream {
                 }
             }
         }
-        Ok(choice["delta"]["content"].as_str().map(str::to_owned))
+        Ok(choice["delta"]["content"]
+            .as_str()
+            .or_else(|| choice["delta"]["refusal"].as_str())
+            .map(str::to_owned))
     }
 
     pub fn finish(self, text: String) -> Result<Response> {
@@ -364,6 +406,10 @@ impl ChatStream {
             );
             output.push(call);
         }
+        ensure!(
+            serde_json::to_vec(&output)?.len() <= self.limit,
+            "Model output exceeds context limit"
+        );
         Ok(Response {
             output,
             text,
@@ -372,19 +418,32 @@ impl ChatStream {
     }
 }
 
-#[derive(Default)]
 pub struct SseDecoder {
     line: Vec<u8>,
     data: String,
+    limit: usize,
+}
+
+impl Default for SseDecoder {
+    fn default() -> Self {
+        Self::with_limit(MAX_EVENT)
+    }
 }
 
 impl SseDecoder {
+    pub fn with_limit(limit: usize) -> Self {
+        Self {
+            line: Vec::new(),
+            data: String::new(),
+            limit,
+        }
+    }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<String>> {
         let mut events = Vec::new();
         for byte in bytes {
             if *byte != b'\n' {
                 ensure!(
-                    self.line.len() + self.data.len() < MAX_EVENT,
+                    self.line.len() + self.data.len() < self.limit,
                     "SSE event exceeds size limit"
                 );
                 self.line.push(*byte);

@@ -55,17 +55,28 @@ pub fn run_agent<'a>(
     ctx: &'a AgentContext,
     items: &'a mut Vec<Value>,
 ) -> Pin<Box<dyn Future<Output = Result<AgentResult>> + Send + 'a>> {
+    Box::pin(async move { run_with_instructions(ctx, items, instructions(ctx).await?).await })
+}
+
+pub async fn instructions(ctx: &AgentContext) -> Result<String> {
+    let project = ctx.workspace.instructions().await?;
+    Ok(format!(
+        "{INSTRUCTIONS}\nWorking directory: {}\nMode: {}\n{project}",
+        ctx.workspace.root.display(),
+        if ctx.read_only {
+            "read-only; do not modify files or run shell commands"
+        } else {
+            "code"
+        }
+    ))
+}
+
+pub fn run_with_instructions<'a>(
+    ctx: &'a AgentContext,
+    items: &'a mut Vec<Value>,
+    instructions: String,
+) -> Pin<Box<dyn Future<Output = Result<AgentResult>> + Send + 'a>> {
     Box::pin(async move {
-        let project = ctx.workspace.instructions().await?;
-        let instructions = format!(
-            "{INSTRUCTIONS}\nWorking directory: {}\nMode: {}\n{project}",
-            ctx.workspace.root.display(),
-            if ctx.read_only {
-                "read-only; do not modify files or run shell commands"
-            } else {
-                "code"
-            }
-        );
         let definitions =
             tools::definitions(ctx.read_only, ctx.depth < ctx.config.max_subagent_depth);
         let mut last_text = String::new();

@@ -51,6 +51,7 @@ pub async fn search(
             count += 1;
             if count > 20000 { capped = true; break; }
             if !entry.file_type().is_some_and(|f| f.is_file()) || entry.path().starts_with(&state) { continue; }
+            if crate::workspace::ensure_private_file(&entry.metadata()?).is_err() { continue; }
             let relative = entry.path().strip_prefix(&root)?;
             if !glob.as_ref().is_none_or(|g|g.is_match(relative)) { continue; }
             if let Some(regex) = &regex {
@@ -154,6 +155,14 @@ async fn ripgrep(
                 (path, text)
             };
             // Apply the user filter after gitignore, rather than overriding ignored paths with -g.
+            let Ok(metadata) = tokio::fs::symlink_metadata(workspace.root.join(&path)).await else {
+                continue;
+            };
+            if metadata.file_type().is_symlink()
+                || crate::workspace::ensure_private_file(&metadata).is_err()
+            {
+                continue;
+            }
             if glob.as_ref().is_some_and(|glob| !glob.is_match(&path)) {
                 continue;
             }

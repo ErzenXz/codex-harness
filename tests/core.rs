@@ -133,6 +133,53 @@ fn usage_is_token_weighted_and_unknown_cache_details_stay_unknown() {
     assert_eq!(truncate("a世界", 4), "a世\n[truncated]");
 }
 
+#[test]
+fn oversized_completed_turns_are_evicted_and_refusals_are_visible() {
+    let mut stream = ChatStream::default();
+    assert_eq!(
+        stream
+            .push(&json!({"choices":[{"delta":{"refusal":"Cannot help"},"finish_reason":"stop"}]}))
+            .unwrap()
+            .as_deref(),
+        Some("Cannot help")
+    );
+    let mut stream = ChatStream::with_limit(10);
+    assert!(stream.push(&json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"write_file","arguments":"large-payload"}}]}}]})).is_err());
+    assert!(SseDecoder::with_limit(4).push(b"12345").is_err());
+}
+
+#[tokio::test]
+async fn completed_context_can_evict_every_turn_and_hardlinks_are_denied() {
+    let dir = tempdir().unwrap();
+    let workspace = Workspace::new(dir.path()).await.unwrap();
+    let mut session = Session::new(&workspace, &Config::default());
+    session.turns.push_back(Turn {
+        items: vec![json!({"role":"user","content":"x".repeat(20000)})],
+    });
+    assert!(session.context(100).is_empty());
+    assert_eq!(session.dropped_turns, 1);
+    #[cfg(unix)]
+    {
+        let secret = dir.path().join(".env");
+        std::fs::write(&secret, "sensitive marker").unwrap();
+        std::fs::hard_link(&secret, dir.path().join("alias")).unwrap();
+        assert!(workspace.resolve("alias", false).await.is_err());
+        assert!(read_bounded(&dir.path().join("alias"), 100).await.is_err());
+        let found = search(
+            &workspace,
+            &dir.path().join("state"),
+            &Semaphore::new(1),
+            "grep",
+            &json!({"pattern":"sensitive","glob":null}),
+            1024,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(!found["content"].as_str().unwrap().contains("marker"));
+    }
+}
+
 #[tokio::test]
 async fn framing_is_newline_delimited_bounded_and_accepts_eof() {
     let mut reader = BufReader::new(&b"{\"a\":1}\n{\"b\":2}"[..]);
@@ -157,6 +204,9 @@ async fn framing_is_newline_delimited_bounded_and_accepts_eof() {
 async fn workspace_rejects_traversal_and_protected_paths() {
     let dir = tempdir().unwrap();
     let workspace = Workspace::new(dir.path()).await.unwrap();
+    std::fs::write(dir.path().join("existing.txt"), "readable").unwrap();
+    let existing = workspace.resolve("existing.txt", false).await.unwrap();
+    assert_eq!(read_bounded(&existing, 100).await.unwrap(), "readable");
     for path in [
         "../escape",
         ".git/config",
@@ -196,7 +246,8 @@ async fn persistence_is_atomic_workspace_scoped_and_private() {
             items: vec![json!({"role":"user","content":format!("turn-{index}-{}","x".repeat(50))})],
         });
     }
-    let context = session.context(180);
+    let two_turn_budget = session.bytes() / 2;
+    let context = session.context(two_turn_budget);
     assert_eq!(session.turns.len(), 2);
     assert_eq!(session.dropped_turns, 2);
     assert_eq!(context.len(), 2);
@@ -344,6 +395,32 @@ async fn search_is_ignore_aware_bounded_and_never_searches_state() {
     .unwrap()
     .unwrap();
     assert_eq!(capped["truncated"], true);
+    // Glob metacharacters in state paths deliberately select the Rust fallback.
+    std::fs::rename(dir.path().join("state"), dir.path().join("state[1]")).unwrap();
+    #[cfg(unix)]
+    std::fs::hard_link(
+        dir.path().join("state[1]/auth.json"),
+        dir.path().join("alias.rs"),
+    )
+    .unwrap();
+    let fallback = search(
+        &workspace,
+        &dir.path().join("state[1]"),
+        &gate,
+        "grep",
+        &json!({"pattern":"needle","glob":"**/*"}),
+        1024 * 1024,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(fallback["engine"], "rust-regex");
+    let text = fallback["content"].as_str().unwrap();
+    assert!(text.contains("main.rs:2"), "{fallback}");
+    assert!(
+        !text.contains("secret") && !text.contains("alias"),
+        "{fallback}"
+    );
 }
 
 #[tokio::test]

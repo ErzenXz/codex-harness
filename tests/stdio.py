@@ -1,6 +1,5 @@
 """Black-box ACP/HTTP tests. Standard library only; never calls a real model."""
 import asyncio
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -173,6 +172,26 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             h.process.send_signal(signal.SIGINT)
             await asyncio.wait_for(h.process.wait(), 3)
 
+    @unittest.skipIf(os.name == "nt", "POSIX signal behavior")
+    async def test_sigterm_exits_even_when_stdin_remains_open(self):
+        async def model(_): return final()
+        async with Harness(model) as h:
+            await h.initialize()
+            h.process.send_signal(signal.SIGTERM)
+            await asyncio.wait_for(h.process.wait(), 3)
+
+    async def test_resource_links_cannot_read_harness_state(self):
+        async def model(_): return final()
+        async with Harness(model) as h:
+            await h.initialize()
+            # Workspace includes the state directory; protections must still apply.
+            new = await h.rpc("session/new", {"cwd": str(h.root), "mcpServers": []})
+            session = new["result"]["sessionId"]
+            state = h.root / "state" / "sessions" / f"{session}.json"
+            result = await h.rpc("session/prompt", {"sessionId": session, "prompt": [{"type": "resource_link", "uri": state.as_uri(), "name": "state"}]})
+            self.assertIn("error", result)
+            self.assertFalse(h.requests)
+
     async def test_approved_tool_loop_persistence_and_usage(self):
         async def model(body):
             if any(item.get("type") == "function_call_output" for item in body["input"]): return final()
@@ -184,6 +203,8 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["result"]["stopReason"], "end_turn", result)
             self.assertEqual((h.workspace / "hello.rs").read_text(), "fn main() {}\n")
             self.assertEqual(len(h.permissions), 1)
+            self.assertNotIn("oldText",h.permissions[0]["params"]["toolCall"]["rawInput"])
+            self.assertNotIn("newText",h.permissions[0]["params"]["toolCall"]["rawInput"])
             self.assertEqual(len(h.requests), 2)
             self.assertEqual(h.connections, 1, "HTTP client should reuse its connection")
             self.assertNotIn("prompt_cache_key", h.requests[0], "Do not force OpenAI-only fields on other providers")
@@ -194,6 +215,57 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             await h.rpc("_harness/session/unload", {"sessionId": session})
             loaded = await h.rpc("session/load", {"sessionId": session, "cwd": str(h.workspace), "mcpServers": []})
             self.assertNotIn("error", loaded)
+            replayed = [u["params"]["update"]["sessionUpdate"] for u in h.updates if u.get("method")=="session/update"]
+            self.assertEqual(replayed.count("tool_call"),2)
+
+    async def test_idle_cancel_preserves_independent_background_work(self):
+        async def model(body):
+            if any(i.get("type")=="function_call_output" for i in body["input"]): return final()
+            return response([call("shell",{"command":"sleep 20","background":True,"timeout_secs":30})])
+        async with Harness(model) as h:
+            await h.initialize()
+            session=await h.session()
+            self.assertNotIn("error",await h.prompt(session))
+            await h.rpc("session/cancel",{"sessionId":session})
+            jobs=(await h.rpc("_harness/tasks",{"sessionId":session}))["result"]["tasks"]
+            self.assertEqual(jobs[0]["status"],"running")
+            await h.rpc("_harness/task/cancel",{"sessionId":session,"taskId":jobs[0]["task_id"]})
+
+    async def test_oversized_provider_output_is_rejected_before_approval(self):
+        async def model(_): return response([call("write_file",{"path":"big","content":"x"*30000})])
+        async with Harness(model,extra="context_bytes = 16384\n") as h:
+            await h.initialize()
+            self.assertIn("error",await h.prompt(await h.session()))
+            self.assertFalse(h.permissions)
+
+    async def test_existing_files_can_be_read_then_edited(self):
+        async def model(body):
+            outputs=[i for i in body["input"] if i.get("type")=="function_call_output"]
+            if not outputs: return response([call("read_file",{"path":"existing.txt","offset_line":1,"limit":100})])
+            if len(outputs)==1:
+                self.assertIn("original content",outputs[0]["output"])
+                self.assertNotIn('"error"',outputs[0]["output"])
+                return response([call("edit_file",{"path":"existing.txt","old_text":"original","new_text":"edited"},"edit")])
+            self.assertNotIn('"error"',outputs[-1]["output"])
+            return final()
+        async with Harness(model) as h:
+            (h.workspace/"existing.txt").write_text("original content")
+            await h.initialize()
+            self.assertNotIn("error",await h.prompt(await h.session()))
+            self.assertEqual((h.workspace/"existing.txt").read_text(),"edited content")
+
+    async def test_large_completed_history_does_not_discard_the_next_prompt(self):
+        async def model(body):
+            if body["input"][-1].get("content","").strip()=="second": return final()
+            text="y"*7000
+            return final(text)
+        async with Harness(model,extra="context_bytes = 16384\n") as h:
+            await h.initialize()
+            session=await h.session()
+            self.assertNotIn("error",await h.prompt(session,"first"))
+            # A large new prompt plus retained history must be budgeted together.
+            self.assertNotIn("error",await h.prompt(session,"x"*8000))
+            self.assertNotIn("error",await h.prompt(session,"second"))
 
     async def test_denied_and_conflicting_edits_never_write(self):
         async def model(body):
