@@ -51,6 +51,46 @@ model input; durable history has a separate 16 MiB/session cap. Neither caps tot
 process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
+## Version 0.5.0 comparison (2026-10-21)
+
+Compared the installed 0.4.1 native binary against a local 0.5.0 release build,
+on the same macOS arm64 machine with Rust 1.99. Three alternating runs per binary
+used the identical 256-prompt fixture. Both binaries were warmed before these runs;
+first-launch OS verification is excluded. Numbers below are medians of those runs.
+
+| Measurement | 0.4.1 | 0.5.0 |
+| --- | ---: | ---: |
+| Native binary bytes | 4,561,504 | 3,051,760 |
+| ACP startup + initialize | 13.36 ms | 8.08 ms |
+| Idle sampled RSS | 4,064 KiB | 3,744 KiB |
+| 256 mock prompts, 50 ms simulated model delay | 0.621 s | 0.644 s |
+| 10,000-file search, end-to-end | 235.73 ms | 254.66 ms |
+
+The binary is **33.1% smaller**. The short-turn timing is roughly flat, not an
+end-to-end speedup claim. Search turns now include extra recovery checkpoints;
+that durability adds work. Three runs do not establish timing significance.
+Startup remains sensitive to filesystem and OS verification caches.
+
+A separate allocation fixture fully consumed each 128 KiB request, sent successful
+SSE headers, and held all response bodies. At **64 concurrent streams**, steady
+sampled native RSS was **60,928 → 48,000 KiB (21.2% lower)**; the observed workload
+peak was **66,256 → 52,960 KiB (20.1% lower)**. Both held phases were stable across
+12 samples. These are process samples, not a guaranteed peak-memory bound.
+
+The one- and 32-stream runs are included in the raw data too. Some phases show
+page reclamation during sampling; at one stream the old binary's held-phase
+median was lower. Small RSS differences and transient drops are not reliable
+universal savings. This fixture excludes the Python server and npm launcher.
+
+```sh
+python3 tests/memory_benchmark.py --binary /absolute/old/piko \
+  --binary /absolute/new/piko --agents 1 32 64 --prompt-kib 128
+```
+
+[Raw samples, binary hashes, environment and live coding-task result](benchmarks/macos-arm64-0.5.0.json).
+The live task passed its independent tests and preserved an unrelated file;
+it is one functional check, not an intelligence benchmark.
+
 ## Version 0.4.0 measurement (2026-10-21)
 
 The [six-target Piko verification](https://github.com/ErzenXz/piko/actions/runs/39651456713)

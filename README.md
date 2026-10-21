@@ -42,17 +42,17 @@ ACP app; selections persist per session. [Discovery and picker details →](http
 
 ## Performance
 
-Measured locally on **macOS arm64 · v0.4.0**.
+Measured locally on **macOS arm64 · v0.5.0**.
 
 | Metric | Result |
 | :--- | ---: |
-| Native binary | **4.56 MB** |
-| ACP startup + initialize | **16.72 ms** |
-| Idle memory, sampled RSS | **3.97 MiB** |
+| Native binary | **3.05 MB** |
+| ACP startup + initialize | **8.08 ms** |
+| Idle memory, sampled RSS | **3.66 MiB** |
 
-One synthetic run; startup includes local fixture setup and excludes model
-inference. Memory and timings vary by workload.
-[Raw results](https://github.com/ErzenXz/piko/blob/main/docs/benchmarks/macos-arm64-0.4.0.json) ·
+Median of three synthetic runs; warm native startup includes fixture setup and
+excludes model inference. Memory and timings vary by workload.
+[Raw results](https://github.com/ErzenXz/piko/blob/main/docs/benchmarks/macos-arm64-0.5.0.json) ·
 [Before/after results and reproduction](https://github.com/ErzenXz/piko/blob/main/docs/performance.md)
 
 ## Built to stay light
