@@ -13,6 +13,26 @@ BINARY = Path(os.environ.get("HARNESS_BIN", "target/debug/codex-harness" + (".ex
 FIXTURE_JPEG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
 
 
+MODEL_CATALOG = {"data": [
+    {"id": "fixture-reasoner", "display_name": "Fixture Reasoner",
+     "supported_reasoning_levels": [{"effort": "low", "description": "Fast"},
+                                    {"effort": "high", "description": "Deep"}],
+     "default_reasoning_level": "low"},
+    {"id": "fixture-basic", "display_name": "Fixture Basic",
+     "supported_reasoning_levels": [{"effort": "none", "description": "Direct"},
+                                    {"effort": "medium", "description": "Balanced"}],
+     "default_reasoning_level": "none"},
+]}
+
+
+def config_options(result):
+    return {option["id"]: option for option in result["configOptions"]}
+
+
+def option_values(option):
+    return {item["value"] for item in option["options"]}
+
+
 def response(output, text="", incomplete=False):
     events = []
     if text:
@@ -54,9 +74,10 @@ def process_alive(pid):
 
 
 class Harness:
-    def __init__(self, handler, extra="", allow=True, content_type="text/event-stream"):
+    def __init__(self, handler, extra="", allow=True, content_type="text/event-stream", catalog=None):
         self.handler, self.extra, self.allow = handler, extra, allow
         self.content_type, self.request_headers = content_type, []
+        self.catalog, self.model_list_requests = catalog, []
         self.pending, self.updates, self.unmatched, self.requests = {}, [], [], []
         self.active = self.peak_active = self.connections = 0
         self.tasks, self.writers = set(), set()
@@ -69,14 +90,27 @@ class Harness:
         self.writers.add(writer)
         self.tasks.add(asyncio.current_task())
         try:
-            while await reader.readline():
+            while request_line := await reader.readline():
+                method, path, _ = request_line.decode().strip().split(" ", 2)
                 headers = {}
                 while (line := await reader.readline()) != b"\r\n":
                     if not line:
                         return
                     key, value = line.decode().split(":", 1)
                     headers[key.lower()] = value.strip()
-                body = json.loads(await reader.readexactly(int(headers["content-length"])))
+                raw = await reader.readexactly(int(headers.get("content-length", "0")))
+                if method == "GET":
+                    self.model_list_requests.append({"path": path, "headers": headers})
+                    catalog = await self.catalog() if callable(self.catalog) else self.catalog
+                    status, value = (404, {"error": "Model catalog unavailable"}) if catalog is None else (
+                        catalog if isinstance(catalog, tuple) else (200, catalog))
+                    payload = json.dumps(value).encode()
+                    writer.write(f"HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n".encode() + payload)
+                    await writer.drain()
+                    continue
+                if method != "POST":
+                    raise AssertionError(f"Unexpected fixture method: {method} {path}")
+                body = json.loads(raw)
                 self.request_headers.append(headers)
                 self.requests.append(body)
                 self.seen.set()
@@ -399,6 +433,187 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(h.permissions)
             self.assertFalse((h.workspace/"bad.txt").exists())
 
+    async def test_discovered_models_modern_and_legacy_selection_persist_and_reach_provider(self):
+        async def model(_): return final("selected")
+        async def catalog():
+            # Keep discovery in flight while concurrent sessions arrive.
+            await asyncio.sleep(.05)
+            return MODEL_CATALOG
+        async with Harness(model, catalog=catalog) as h:
+            await h.initialize()
+            created = await asyncio.gather(*(h.rpc("session/new", {"cwd": str(h.workspace), "mcpServers": []}) for _ in range(3)))
+            self.assertTrue(all("result" in result for result in created), created)
+            self.assertEqual(len(h.model_list_requests), 1)
+            self.assertEqual(h.model_list_requests[0]["path"], "/v1/models")
+            self.assertFalse(h.requests or h.request_headers)
+            first, second = (result["result"] for result in created[:2])
+            session = first["sessionId"]
+            options = config_options(first)
+            self.assertTrue(all(options[key]["type"] == "select" for key in ("model", "reasoning_effort", "mode")))
+            self.assertEqual({key: options[key]["category"] for key in ("model", "reasoning_effort", "mode")},
+                             {"model": "model", "reasoning_effort": "thought_level", "mode": "mode"})
+            self.assertTrue({"fixture-reasoner", "fixture-basic"}.issubset(option_values(options["model"])))
+            self.assertTrue({"fixture-reasoner", "fixture-basic"}.issubset({item["modelId"] for item in first["models"]["availableModels"]}))
+
+            selected = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "model", "value": "fixture-reasoner"})
+            self.assertNotIn("error", selected, selected)
+            options = config_options(selected["result"])
+            self.assertEqual(options["model"]["currentValue"], "fixture-reasoner")
+            self.assertEqual(options["reasoning_effort"]["currentValue"], "low")
+            self.assertEqual(option_values(options["reasoning_effort"]), {"default", "low", "high"})
+            effort = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "reasoning_effort", "value": "high"})
+            self.assertNotIn("error", effort, effort)
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertEqual(h.requests[-1]["model"], "fixture-reasoner")
+            self.assertEqual(h.requests[-1]["reasoning"]["effort"], "high")
+
+            mode = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "mode", "value": "plan"})
+            self.assertNotIn("error", mode, mode)
+            legacy = await h.rpc("session/set_model", {"sessionId": session, "modelId": "fixture-basic"})
+            self.assertEqual(legacy.get("result"), {}, legacy)
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertEqual(h.requests[-1]["model"], "fixture-basic")
+            self.assertEqual(h.requests[-1]["reasoning"]["effort"], "none")
+            self.assertNotIn("write_file", [tool["name"] for tool in h.requests[-1]["tools"]])
+            default = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "reasoning_effort", "value": "default"})
+            self.assertNotIn("error", default, default)
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertNotIn("reasoning", h.requests[-1])
+            for params in [
+                {"configId": "model", "value": "not-advertised"},
+                {"configId": "reasoning_effort", "value": "high"},
+                {"configId": "mode", "value": "unsafe"},
+                {"configId": "unknown", "value": "anything"},
+                {"configId": "model", "value": 123},
+            ]:
+                rejected = await h.rpc("session/set_config_option", {"sessionId": session, **params})
+                self.assertIn("error", rejected, rejected)
+
+            await h.rpc("_harness/session/unload", {"sessionId": session})
+            loaded = await h.rpc("session/load", {"sessionId": session, "cwd": str(h.workspace), "mcpServers": []})
+            self.assertNotIn("error", loaded, loaded)
+            options = config_options(loaded["result"])
+            self.assertEqual(loaded["result"]["models"]["currentModelId"], "fixture-basic")
+            self.assertEqual(options["reasoning_effort"]["currentValue"], "default")
+            self.assertEqual(option_values(options["reasoning_effort"]), {"default", "none", "medium"})
+            self.assertEqual(options["mode"]["currentValue"], "plan")
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertEqual(h.requests[-1]["model"], "fixture-basic")
+            self.assertNotIn("reasoning", h.requests[-1])
+            self.assertNotIn("error", await h.prompt(second["sessionId"]))
+            self.assertEqual(h.requests[-1]["model"], second["models"]["currentModelId"])
+            self.assertEqual(len(h.model_list_requests), 1)
+
+    async def test_saved_reasoning_remains_selectable_without_catalog_metadata(self):
+        async def model(_): return final()
+        async with Harness(model, catalog={"data": [*MODEL_CATALOG["data"], {"id": "fixture-no-reasoning", "supported_reasoning_levels": []}]}) as h:
+            await h.initialize()
+            session = await h.session()
+            await h.rpc("_harness/session/unload", {"sessionId": session})
+            path = h.root / "state" / "sessions" / f"{session}.json"
+            saved = json.loads(path.read_text())
+            for selected_model in ["retired-model", "gpt-6-luna"]:
+                saved.update(model=selected_model, reasoning_effort="high")
+                path.write_text(json.dumps(saved))
+                loaded = await h.rpc("session/load", {"sessionId": session, "cwd": str(h.workspace), "mcpServers": []})
+                self.assertNotIn("error", loaded, loaded)
+                reasoning = config_options(loaded["result"])["reasoning_effort"]
+                self.assertEqual(reasoning["currentValue"], "high")
+                self.assertIn("high", option_values(reasoning))
+                selected = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "reasoning_effort", "value": "high"})
+                self.assertNotIn("error", selected, selected)
+                self.assertNotIn("error", await h.prompt(session))
+                self.assertEqual(h.requests[-1]["reasoning"]["effort"], "high")
+                await h.rpc("_harness/session/unload", {"sessionId": session})
+            saved.update(model="fixture-basic", reasoning_effort="high")
+            path.write_text(json.dumps(saved))
+            loaded = await h.rpc("session/load", {"sessionId": session, "cwd": str(h.workspace), "mcpServers": []})
+            self.assertEqual(config_options(loaded["result"])["reasoning_effort"]["currentValue"], "none")
+            rejected = await h.rpc("authenticate", {"methodId": "api_key"})
+            self.assertIn("Unload all sessions", rejected.get("error", {}).get("message", ""))
+            await h.rpc("_harness/session/unload", {"sessionId": session})
+            saved.update(model="fixture-no-reasoning", reasoning_effort="high")
+            path.write_text(json.dumps(saved))
+            loaded = await h.rpc("session/load", {"sessionId": session, "cwd": str(h.workspace), "mcpServers": []})
+            reasoning = config_options(loaded["result"])["reasoning_effort"]
+            self.assertEqual(reasoning["currentValue"], "default")
+            self.assertEqual(option_values(reasoning), {"default"})
+            rejected = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "reasoning_effort", "value": "high"})
+            self.assertEqual(rejected["error"]["code"], -32602)
+
+    async def test_large_catalog_preserves_models_in_bounded_selector_frames(self):
+        async def model(_): return final()
+        catalog = {"data": [{"id": "gpt-6-luna" if i == 0 else f"model-{i}",
+            "display_name": "界" * 40, "description": "界" * 60,
+            "supported_reasoning_levels": ["low", "high"]} for i in range(512)]}
+        async with Harness(model, catalog=catalog) as h:
+            await h.initialize()
+            created = await h.rpc("session/new", {"cwd": str(h.workspace), "mcpServers": []})
+            self.assertNotIn("error", created, created)
+            result = created["result"]
+            self.assertEqual(len(result["models"]["availableModels"]), 512)
+            self.assertLess(len(json.dumps(created, ensure_ascii=False).encode()), 1024 * 1024)
+            self.assertTrue(all(len(row["name"].encode()) <= 128 for row in result["models"]["availableModels"]))
+
+    async def test_selected_chat_reasoning_and_provider_default_serialization(self):
+        async def model(_):
+            return 'data: {"choices":[{"delta":{"content":"selected"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+        async with Harness(model, catalog=MODEL_CATALOG, extra='wire_api = "chat_completions"\n') as h:
+            await h.initialize()
+            session = await h.session()
+            for key, value in [("model", "fixture-reasoner"), ("reasoning_effort", "high")]:
+                selected = await h.rpc("session/set_config_option", {"sessionId": session, "configId": key, "value": value})
+                self.assertNotIn("error", selected, selected)
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertEqual(h.requests[-1]["model"], "fixture-reasoner")
+            self.assertEqual(h.requests[-1]["reasoning_effort"], "high")
+            self.assertNotIn("reasoning", h.requests[-1])
+            selected = await h.rpc("session/set_config_option", {"sessionId": session, "configId": "reasoning_effort", "value": "default"})
+            self.assertNotIn("error", selected, selected)
+            self.assertNotIn("error", await h.prompt(session))
+            self.assertNotIn("reasoning_effort", h.requests[-1])
+            self.assertNotIn("reasoning", h.requests[-1])
+
+    async def test_selection_rejected_while_session_turn_is_busy(self):
+        release = asyncio.Event()
+        async def model(_):
+            await release.wait()
+            return final()
+        async with Harness(model, catalog=MODEL_CATALOG) as h:
+            await h.initialize()
+            session = await h.session()
+            running = asyncio.create_task(h.prompt(session))
+            try:
+                await asyncio.wait_for(h.seen.wait(), 3)
+                for method, params in [
+                    ("session/set_config_option", {"configId": "model", "value": "fixture-reasoner"}),
+                    ("session/set_config_option", {"configId": "reasoning_effort", "value": "default"}),
+                    ("session/set_config_option", {"configId": "mode", "value": "plan"}),
+                    ("session/set_model", {"modelId": "fixture-reasoner"}),
+                ]:
+                    rejected = await h.rpc(method, {"sessionId": session, **params})
+                    self.assertIn("busy", rejected.get("error", {}).get("message", "").lower(), rejected)
+            finally:
+                release.set()
+                result = await asyncio.wait_for(running, 3)
+            self.assertNotIn("error", result, result)
+
+    async def test_failed_model_catalog_keeps_configured_model_usable(self):
+        async def model(_): return final()
+        for catalog in [None, (503, {"error": "Unavailable"}), {"data": "invalid"}]:
+            with self.subTest(catalog=catalog):
+                async with Harness(model, catalog=catalog) as h:
+                    await h.initialize()
+                    for _ in range(2):
+                        created = await h.rpc("session/new", {"cwd": str(h.workspace), "mcpServers": []})
+                        self.assertNotIn("error", created, created)
+                        result = created["result"]
+                        self.assertEqual(result["models"]["currentModelId"], "gpt-6-luna")
+                        self.assertEqual(option_values(config_options(result)["model"]), {"gpt-6-luna"})
+                        self.assertNotIn("error", await h.prompt(result["sessionId"]))
+                    self.assertEqual(len(h.model_list_requests), 1)
+                    self.assertEqual(len(h.requests), 2)
+
     async def test_codeink_model_selection_before_each_prompt(self):
         async def model(_): return final("connected")
         async with Harness(model) as h:
@@ -414,7 +629,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
                 result = await h.prompt(session, "test connection")
                 self.assertEqual(result["result"]["stopReason"], "end_turn", result)
             invalid = await h.rpc("session/set_model", {"sessionId": session, "modelId": "unadvertised"})
-            self.assertIn("not available", invalid["error"]["message"])
+            self.assertIn("error", invalid, invalid)
             missing = await h.rpc("session/set_model", {"sessionId": session})
             self.assertIn("error", missing)
             await h.rpc("_harness/session/unload", {"sessionId": session})

@@ -1,3 +1,16 @@
+# 0.3.0
+
+- Discover available text models using your existing ChatGPT login or configured
+  OpenAI-compatible provider, with names and model-specific reasoning levels.
+- Standard ACP model, reasoning and Code/Plan selectors; legacy selection still
+  works. Persist choices per session and pass them through to model requests and
+  subagents. Reject unsupported values without changing the session.
+- Share one lazy catalog fetch across concurrent sessions and cache it privately
+  for five minutes. Discovery is bounded to five seconds, 2 MiB input, 256 KiB normalized metadata and 512 models;
+  unavailable providers fall back to the configured model. No new dependencies.
+- Add per-model reasoning metadata for CodeInk's model picker, and protect OAuth
+  token rotation when a discovery deadline cancels its waiting request.
+
 # 0.2.1
 
 - Fix CodeInk and other ACP clients selecting the advertised model before a

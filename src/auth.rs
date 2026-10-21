@@ -10,7 +10,10 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{io::AsyncWriteExt, sync::Mutex};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{Mutex, OwnedMutexGuard},
+};
 
 // Public Codex OAuth client; see THIRD_PARTY_NOTICES.md for the upstream contract.
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -98,8 +101,8 @@ impl Auth {
                 || self.config.base_url.trim_end_matches('/') == CHATGPT_BASE,
             "ChatGPT tokens can only be sent to the OpenAI Codex endpoint"
         );
-        let mut cache = self.refresh.lock().await;
-        let mut tokens: Value = if let Some(tokens) = cache.as_ref() {
+        let mut cache = self.refresh.clone().lock_owned().await;
+        let tokens: Value = if let Some(tokens) = cache.as_ref() {
             tokens.clone()
         } else {
             use tokio::io::AsyncReadExt;
@@ -118,40 +121,16 @@ impl Auth {
             .ok()
             .and_then(|c| c["exp"].as_u64())
             .unwrap_or(0);
-        if force || expiry <= now() + 60 {
-            let refresh = tokens["refresh_token"]
-                .as_str()
-                .context("Missing refresh token; sign in again")?;
-            let response = client
-                .post(format!("{ISSUER}/oauth/token"))
-                .json(&json!({
-                    "client_id": CLIENT_ID, "grant_type":"refresh_token", "refresh_token":refresh
-                }))
-                .send()
+        let tokens = if force || expiry <= now() + 60 {
+            // The refresh task owns the lock and must finish persisting rotated tokens even
+            // if a model-catalog deadline or a disconnected client drops this waiter.
+            self.refresh_tokens(client, cache, tokens, format!("{ISSUER}/oauth/token"))
                 .await
-                .context("OAuth refresh failed")?;
-            ensure!(
-                response.status().is_success(),
-                "ChatGPT token refresh rejected; run codex-harness login again"
-            );
-            let updated: Value = response
-                .json()
-                .await
-                .context("Invalid OAuth refresh response")?;
-            ensure!(
-                updated["access_token"]
-                    .as_str()
-                    .is_some_and(|token| !token.is_empty()),
-                "Missing refreshed access token; sign in again"
-            );
-            for field in ["access_token", "refresh_token", "id_token"] {
-                if let Some(value) = updated[field].as_str() {
-                    tokens[field] = json!(value);
-                }
-            }
-            self.save(&tokens).await?;
-        }
-        *cache = Some(tokens.clone());
+                .context("OAuth refresh task interrupted")??
+        } else {
+            *cache = Some(tokens.clone());
+            tokens
+        };
         let account_id = tokens["account_id"]
             .as_str()
             .context("Missing ChatGPT account ID; sign in again")?
@@ -165,6 +144,61 @@ impl Auth {
             ),
             account_id: Some(account_id),
             base_url: CHATGPT_BASE.into(),
+        })
+    }
+
+    fn refresh_tokens(
+        &self,
+        client: &reqwest::Client,
+        mut cache: OwnedMutexGuard<Option<Value>>,
+        mut tokens: Value,
+        endpoint: String,
+    ) -> tokio::task::JoinHandle<Result<Value>> {
+        let auth = self.clone();
+        let client = client.clone();
+        tokio::spawn(async move {
+            let refresh = tokens["refresh_token"]
+                .as_str()
+                .context("Missing refresh token; sign in again")?;
+            let mut response = client
+                .post(endpoint)
+                .timeout(Duration::from_secs(30))
+                .json(&json!({"client_id": CLIENT_ID, "grant_type":"refresh_token", "refresh_token":refresh}))
+                .send()
+                .await
+                .context("OAuth refresh failed")?;
+            ensure!(
+                response.status().is_success(),
+                "ChatGPT token refresh rejected; run codex-harness login again"
+            );
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .context("OAuth refresh response interrupted")?
+            {
+                ensure!(
+                    bytes.len() + chunk.len() < 65536,
+                    "Invalid OAuth refresh response size"
+                );
+                bytes.extend_from_slice(&chunk);
+            }
+            let updated: Value =
+                serde_json::from_slice(&bytes).context("Invalid OAuth refresh response")?;
+            ensure!(
+                updated["access_token"]
+                    .as_str()
+                    .is_some_and(|token| !token.is_empty()),
+                "Missing refreshed access token; sign in again"
+            );
+            for field in ["access_token", "refresh_token", "id_token"] {
+                if let Some(value) = updated[field].as_str() {
+                    tokens[field] = json!(value);
+                }
+            }
+            auth.save(&tokens).await?;
+            *cache = Some(tokens.clone());
+            Ok(tokens)
         })
     }
 
@@ -326,6 +360,113 @@ fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancelled_refresh_waiter_still_persists_rotation_and_unblocks_credentials() {
+        use tokio::{io::AsyncReadExt, sync::oneshot};
+        let directory = tempfile::tempdir().unwrap();
+        let config = Config {
+            auth: "chatgpt".into(),
+            state_dir: directory.path().join("state"),
+            ..Config::default()
+        };
+        let auth = Auth::new(&config);
+        let old = json!({"access_token":"expired-fixture", "refresh_token":"old-fixture", "account_id":"fixture-account"});
+        auth.save(&old).await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/oauth/token", listener.local_addr().unwrap());
+        let refreshed = format!(
+            "header.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({"exp":now()+3600})).unwrap())
+        );
+        let body = serde_json::to_vec(
+            &json!({"access_token":refreshed,"refresh_token":"rotated-fixture"}),
+        )
+        .unwrap();
+        let (received_tx, received_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0; 1024];
+                let read = socket.read(&mut chunk).await.unwrap();
+                assert!(read > 0 && request.len() + read <= 4096);
+                request.extend_from_slice(&chunk[..read]);
+                if let Some(header_end) =
+                    request.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+                    let length = headers
+                        .lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .map(|(_, length)| length.trim().parse::<usize>().unwrap())
+                        .unwrap_or(0);
+                    if request.len() >= header_end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            assert!(request.starts_with(b"POST /oauth/token HTTP/1.1"));
+            received_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            socket.write_all(&body).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let waiter_auth = auth.clone();
+        let waiter_client = client.clone();
+        let waiter = tokio::spawn(async move {
+            let guard = waiter_auth.refresh.clone().lock_owned().await;
+            waiter_auth
+                .refresh_tokens(&waiter_client, guard, old, endpoint)
+                .await
+                .unwrap()
+                .unwrap();
+        });
+        tokio::time::timeout(Duration::from_secs(2), received_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        assert!(auth.refresh.try_lock().is_err());
+        // A second caller queues on the same transaction, without spawning another refresh.
+        let following_auth = auth.clone();
+        let following_client = client.clone();
+        let following =
+            tokio::spawn(async move { following_auth.credentials(&following_client, false).await });
+        release_tx.send(()).unwrap();
+        let credentials = tokio::time::timeout(Duration::from_secs(2), following)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(credentials.bearer.as_deref(), Some(refreshed.as_str()));
+        assert_eq!(credentials.account_id.as_deref(), Some("fixture-account"));
+        server.await.unwrap();
+        let saved: Value =
+            serde_json::from_slice(&tokio::fs::read(auth.path()).await.unwrap()).unwrap();
+        assert_eq!(saved["access_token"], refreshed);
+        assert_eq!(saved["refresh_token"], "rotated-fixture");
+        let cache = tokio::time::timeout(Duration::from_secs(2), auth.refresh.lock())
+            .await
+            .unwrap();
+        assert_eq!(cache.as_ref().unwrap(), &saved);
+        assert_eq!(std::fs::read_dir(&config.state_dir).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(auth.path()).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
 
     #[tokio::test]
     async fn refreshed_credentials_replace_existing_file_without_temporary_files() {

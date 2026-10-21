@@ -13,6 +13,7 @@ pub struct Provider {
     client: reqwest::Client,
     config: Config,
     auth: Auth,
+    catalog: Arc<crate::models::Catalog>,
     requests: Arc<Semaphore>,
     pub metrics: Arc<Metrics>,
 }
@@ -25,7 +26,19 @@ pub struct Response {
 
 impl Provider {
     pub async fn authenticate(&self, method: &str) -> Result<()> {
-        self.auth.authenticate(&self.client, method).await
+        self.auth.authenticate(&self.client, method).await?;
+        self.invalidate_models().await;
+        Ok(())
+    }
+
+    pub async fn models(&self) -> crate::models::ModelCatalog {
+        self.catalog
+            .get(&self.client, &self.auth, &self.config)
+            .await
+    }
+
+    pub async fn invalidate_models(&self) {
+        self.catalog.invalidate(&self.config.state_dir).await;
     }
 
     pub fn new(config: &Config) -> Result<Self> {
@@ -38,6 +51,7 @@ impl Provider {
                 .build()?,
             config: config.clone(),
             auth: Auth::new(config),
+            catalog: Arc::new(crate::models::Catalog::default()),
             requests: Arc::new(Semaphore::new(config.max_model_requests)),
             metrics: Arc::new(Metrics::default()),
         })
@@ -47,6 +61,7 @@ impl Provider {
     pub async fn respond(
         &self,
         model: &str,
+        reasoning_effort: Option<&str>,
         instructions: &str,
         input: &[Value],
         tools: &[Value],
@@ -67,7 +82,7 @@ impl Provider {
             "max_output_tokens": self.config.max_output_tokens,
             "include": ["reasoning.encrypted_content"]
         });
-        if let Some(effort) = &self.config.reasoning_effort {
+        if let Some(effort) = reasoning_effort {
             body["reasoning"] = json!({"effort": effort});
         }
         if credentials.account_id.is_some() {
@@ -84,7 +99,7 @@ impl Provider {
                 tools,
                 self.config.max_output_tokens,
             )?;
-            if let Some(effort) = &self.config.reasoning_effort {
+            if let Some(effort) = reasoning_effort {
                 body["reasoning_effort"] = json!(effort);
             }
         }

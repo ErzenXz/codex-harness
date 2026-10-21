@@ -22,6 +22,7 @@ pub struct AgentContext {
     pub session_id: String,
     pub agent_id: Option<String>,
     pub model: String,
+    pub reasoning_effort: Option<String>,
     pub depth: usize,
     pub read_only: bool,
     pub cancel: CancellationToken,
@@ -123,7 +124,7 @@ pub fn run_with_instructions<'a>(
             let response = tokio::select! {
                 biased;
                 _ = ctx.cancel.cancelled() => return Ok(AgentResult {text:last_text,stop_reason:"cancelled"}),
-                response = ctx.provider.respond(&ctx.model,&instructions,items,&definitions,&ctx.peer,&ctx.session_id,ctx.agent_id.as_deref(),&ctx.cancel) => response?,
+                response = ctx.provider.respond(&ctx.model,ctx.reasoning_effort.as_deref(),&instructions,items,&definitions,&ctx.peer,&ctx.session_id,ctx.agent_id.as_deref(),&ctx.cancel) => response?,
             };
             last_text = response.text;
             if response.incomplete {

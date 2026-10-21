@@ -46,7 +46,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.1 --locked
+cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.3.0 --locked
 ```
 
 ## ACP launch contract
@@ -118,7 +118,7 @@ billed separately from a ChatGPT subscription. No interactive `login` is needed.
 
 Set `OPENAI_API_KEY` in the **launcher environment**, not a repository file.
 In `auth = "auto"`, a key takes precedence over ChatGPT credentials. Use explicit
-`auth = "chatgpt"` to force subscription access. ACP `authenticate` can select an
+`auth = "chatgpt"` to force subscription access. Unload all sessions before changing authentication. ACP `authenticate` can select an
 available method for the running process; it does not start an interactive login.
 
 ### Other OpenAI-compatible providers
@@ -127,6 +127,46 @@ Pass `--config /absolute/path/config.toml`; examples are in [`examples/`](../exa
 Responses and Chat Completions SSE/function calling are supported. Native
 Anthropic/Gemini wire protocols are **not** implemented. Compatible providers can
 differ in tool-schema, usage-reporting, model, and token-limit support.
+
+## Model discovery and reasoning
+
+ChatGPT sign-in discovers the model catalog available to that account from the
+Codex backend. This uses the upstream Codex catalog contract, which may change.
+API-key and custom providers use `GET /models` at the configured base URL. Clearly
+non-agent entries such as embeddings, image generation and audio-only models are
+excluded. The configured model remains available for custom aliases and offline
+use; provider permissions, quotas and endpoint compatibility still apply.
+
+Discovery starts only when a client requests a catalog or creates/loads a
+session. Concurrent sessions share one request and one immutable catalog. A
+private, provider/account-scoped cache lasts five minutes across launches; it
+contains model metadata, never credentials. Discovery has a five-second deadline
+and caps responses at 2 MiB, normalized metadata at 256 KiB, and catalogs at
+512 entries. Oversized catalogs fail discovery without silently dropping models.
+Network, malformed-response or cache failures leave the configured model usable. No daemon, SDK, bundled catalog or
+new dependency is required.
+
+Reasoning choices come from live capability metadata. Exact documented OpenAI
+Responses aliases also have a small capability fallback; unknown/custom models
+offer `Provider default` when their provider does not describe reasoning support.
+A trusted `reasoning_effort` configuration remains usable for its configured
+model. Saved reasoning remains selectable when capability metadata is unavailable;
+authoritative metadata replaces unsupported saved choices with the model default. The harness does not assume every model supports the same effort values.
+Use the Responses wire API for OpenAI reasoning models with tools; Chat
+Completions support and tool compatibility vary by model.
+
+ACP clients receive model, reasoning (`thought_level`) and mode selectors through
+`configOptions`. Choices are saved independently per session. Changing a model
+refreshes its reasoning options, keeping a compatible choice or selecting the
+new model's default. Selecting `Provider default` omits the effort parameter;
+unsupported values fail before inference. Configuration cannot change during an
+active turn. CodeInk's companion update reads per-model reasoning metadata from
+`_meta.harness.reasoningEfforts`; older clients can use standard configuration
+updates or legacy model selection.
+
+See the [ACP configuration contract](https://agentclientprotocol.com/protocol/v1/session-config-options),
+[OpenAI model listing](https://developers.openai.com/api/reference/resources/models/methods/list)
+and [reasoning reference](https://developers.openai.com/api/docs/guides/reasoning).
 
 ## Agent runtime
 
@@ -311,13 +351,18 @@ or shut down the process. SIGINT/SIGTERM trigger orderly Unix shutdown.
 ## Protocol surface
 
 ACP: `initialize`, `authenticate`, `session/new`, `session/load`,
-`session/prompt`, `session/cancel`, `session/set_mode`, `session/set_model`; notifications via
+`session/prompt`, `session/cancel`, `session/set_mode`, `session/set_model`,
+`session/set_config_option`; notifications via
 `session/update`; approvals via `session/request_permission`.
 
-Each session advertises its configured model. Legacy ACP model selection accepts
-that model idempotently, including before every prompt; other model IDs are
-rejected. Choose a different configured model through a trusted config file or
-`OPENAI_MODEL`, then create a new session.
+Sessions expose standard ACP `configOptions` for model, reasoning effort and
+Code/Plan mode, alongside legacy `models`, `session/set_model` and
+`session/set_mode`. `session/set_config_option` returns the complete updated list
+and emits `config_option_update`. Invalid values return JSON-RPC `-32602`.
+Model changes preserve compatible effort choices and otherwise use the new
+model's advertised default. `Provider default` omits the reasoning field.
+Selections are isolated per session, persisted on disk and inherited by subagents.
+Older sessions migrate when loaded.
 
 Extensions (all stdio JSON-RPC, no extra listener):
 
@@ -327,6 +372,7 @@ Extensions (all stdio JSON-RPC, no extra listener):
 | `_harness/task/cancel` | `sessionId`, `taskId`: cancel a job and descendants |
 | `_harness/session/unload` | `sessionId`: free an idle loaded session, cancel its jobs |
 | `_harness/stats` | `{}`: observed provider cache-token counters |
+| `_harness/models` | `{}`: discovered models and reasoning metadata without creating a session |
 | `_harness/task` (notification) | task state/output deltas |
 | `_harness/usage` (notification) | provider usage for a completed model response |
 

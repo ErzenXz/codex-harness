@@ -34,6 +34,9 @@ Your app provides the interface; the harness communicates over stdin/stdout.
 Subscription login uses your plan's model access and limits.
 [Other providers and API keys →](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#authentication-and-providers)
 
+Available models and reasoning levels load automatically. Choose them in your
+ACP app; selections persist per session. [Discovery and picker details →](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#model-discovery-and-reasoning)
+
 ## Performance
 
 Measured locally on **macOS arm64 · v0.2.0**.

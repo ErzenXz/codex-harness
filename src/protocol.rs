@@ -3,6 +3,7 @@ use crate::{
     config::Config,
     jobs::Jobs,
     mcp::{Pool as McpPool, Servers as McpServers},
+    models::{ModelCatalog, ModelInfo},
     provider::Provider,
     session::{Session, Store, Turn},
     tools::string,
@@ -28,6 +29,26 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 pub const MAX_FRAME: usize = 1024 * 1024;
+
+#[derive(Debug)]
+struct InvalidParams(&'static str);
+
+impl std::fmt::Display for InvalidParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for InvalidParams {}
+
+fn selection<'a>(params: &'a Value, key: &str) -> Result<&'a str> {
+    params[key]
+        .as_str()
+        .filter(|value| {
+            !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+        })
+        .ok_or_else(|| InvalidParams("Missing or invalid selection parameter").into())
+}
 
 #[derive(Clone)]
 pub struct Peer {
@@ -106,6 +127,7 @@ struct Slot {
     cancel: Mutex<CancellationToken>,
     jobs: Jobs,
     mcp: Arc<McpServers>,
+    models: ModelCatalog,
 }
 
 pub struct Server {
@@ -170,11 +192,17 @@ impl Server {
         );
         match method {
             "_harness/stats" => Ok(self.provider.metrics.snapshot()),
+            "_harness/models" => Ok(json!({"models":self.provider.models().await})),
             "authenticate" => {
                 let method = string(&params, "methodId")?;
                 ensure!(
                     ["chatgpt", "api_key"].contains(&method),
                     "Unknown authentication method"
+                );
+                let sessions = self.sessions.lock().await;
+                ensure!(
+                    sessions.is_empty(),
+                    "Unload all sessions before changing authentication"
                 );
                 self.provider.authenticate(method).await?;
                 Ok(json!({}))
@@ -187,16 +215,32 @@ impl Server {
                     &workspace.root,
                     self.mcp_pool.clone(),
                 )?);
-                let session = if method == "session/load" {
+                let mut session = if method == "session/load" {
                     self.store
                         .load(Uuid::parse_str(string(&params, "sessionId")?)?, &workspace)
                         .await?
                 } else {
                     Session::new(&workspace, &self.config)
                 };
+                let mut sessions = self.sessions.lock().await;
+                ensure!(
+                    sessions.len() < self.config.max_sessions,
+                    "Loaded session limit reached; unload a session first"
+                );
+                let models = self.provider.models().await;
+                if session.version == 1 {
+                    session.reasoning_effort = self.config.reasoning_effort.clone();
+                    session.version = 2;
+                }
+                if let Some(model) = models.iter().find(|model| model.id == session.model)
+                    && (session.reasoning_effort.as_deref().is_some_and(|effort| {
+                        (model.reasoning_capabilities_known || !model.reasoning_efforts.is_empty())
+                            && !self.effort_allowed(model, effort)
+                    }) || (method == "session/new" && session.reasoning_effort.is_none()))
+                {
+                    session.reasoning_effort = model.default_reasoning_effort.clone();
+                }
                 let id = session.id;
-                let mode = session.mode.clone();
-                let model = session.model.clone();
                 let slot = Arc::new(Slot {
                     session: Mutex::new(session),
                     workspace,
@@ -204,13 +248,9 @@ impl Server {
                     cancel: Mutex::new(self.shutdown.child_token()),
                     jobs: Jobs::new(self.config.max_jobs, self.config.tool_output_bytes),
                     mcp,
+                    models,
                 });
-                let mut sessions = self.sessions.lock().await;
                 ensure!(!sessions.contains_key(&id), "Session already loaded");
-                ensure!(
-                    sessions.len() < self.config.max_sessions,
-                    "Loaded session limit reached; unload a session first"
-                );
                 sessions.insert(id, slot.clone());
                 drop(sessions);
                 let result: Result<()> = async {
@@ -227,9 +267,10 @@ impl Server {
                     return Err(error);
                 }
                 slot.busy.add_permits(1);
-                Ok(
-                    json!({"sessionId":id,"modes":modes(&mode),"models":{"currentModelId":model,"availableModels":[{"modelId":model,"name":model}]}}),
-                )
+                let session = slot.session.lock().await;
+                Ok(json!({"sessionId":id,"modes":modes(&session.mode),
+                    "models":{"currentModelId":session.model,"availableModels":self.available_models(&session,&slot.models)},
+                    "configOptions":self.config_options(&session,&slot.models)}))
             }
             "session/prompt" => self.prompt(params).await,
             "session/cancel" => {
@@ -238,49 +279,16 @@ impl Server {
                 Ok(json!({}))
             }
             "session/set_model" => {
-                let slot = self.slot(&params).await?;
-                let _permit = slot
-                    .busy
-                    .clone()
-                    .try_acquire_owned()
-                    .context("Session is busy")?;
-                let model = string(&params, "modelId")?;
-                // Each session advertises its configured model only. ACP clients
-                // may reselect that model before every prompt, including reloads.
-                ensure!(
-                    model == slot.session.lock().await.model,
-                    "Model is not available in this session; use its advertised model or change the trusted configuration"
-                );
+                self.set_option(&params, "model", "modelId").await?;
                 Ok(json!({}))
             }
             "session/set_mode" => {
-                let slot = self.slot(&params).await?;
-                let _permit = slot
-                    .busy
-                    .clone()
-                    .try_acquire_owned()
-                    .context("Session is busy")?;
-                let mode = string(&params, "modeId")?;
-                ensure!(["code", "plan"].contains(&mode), "Unknown mode");
-                ensure!(
-                    !slot
-                        .jobs
-                        .list()
-                        .await
-                        .iter()
-                        .any(|j| j["status"] == "running"),
-                    "Cancel running background tasks before changing mode"
-                );
-                let mut session = slot.session.lock().await;
-                session.mode = mode.into();
-                self.store.save(&session).await?;
-                self.peer
-                    .update(
-                        &session.id.to_string(),
-                        json!({"sessionUpdate":"current_mode_update","currentModeId":mode}),
-                    )
-                    .await?;
+                self.set_option(&params, "mode", "modeId").await?;
                 Ok(json!({}))
+            }
+            "session/set_config_option" => {
+                let config_id = selection(&params, "configId")?;
+                self.set_option(&params, config_id, "value").await
             }
             "_harness/tasks" => {
                 let slot = self.slot(&params).await?;
@@ -310,6 +318,186 @@ impl Server {
             }
             _ => bail!("Method not found"),
         }
+    }
+
+    fn effort_allowed(&self, model: &ModelInfo, effort: &str) -> bool {
+        model
+            .reasoning_efforts
+            .iter()
+            .any(|option| option.effort == effort)
+            || (!model.reasoning_capabilities_known
+                && model.reasoning_efforts.is_empty()
+                && model.id == self.config.model
+                && self.config.reasoning_effort.as_deref() == Some(effort))
+    }
+
+    fn reasoning_options(&self, model: &ModelInfo, saved: Option<&str>) -> Vec<Value> {
+        let mut options = vec![
+            json!({"value":"default","name":"Provider default","description":"Let the provider choose its default reasoning effort"}),
+        ];
+        for option in &model.reasoning_efforts {
+            if option.effort != "default" {
+                options.push(json!({"value":option.effort,"name":effort_name(&option.effort),"description":short(&option.description,256)}));
+            }
+        }
+        if !model.reasoning_capabilities_known
+            && model.reasoning_efforts.is_empty()
+            && model.id == self.config.model
+            && let Some(effort) = &self.config.reasoning_effort
+        {
+            options.push(json!({"value":effort,"name":effort_name(effort),"description":"From your trusted provider configuration"}));
+        }
+        if !model.reasoning_capabilities_known
+            && model.reasoning_efforts.is_empty()
+            && let Some(effort) = saved
+            && effort != "default"
+            && !options.iter().any(|option| option["value"] == effort)
+        {
+            options.push(json!({"value":effort,"name":effort_name(effort),"description":"Saved setting; provider capabilities are unavailable"}));
+        }
+        options
+    }
+
+    fn available_models(&self, session: &Session, catalog: &[ModelInfo]) -> Vec<Value> {
+        let mut models: Vec<Value> = catalog.iter().map(|model| {
+            let efforts: Vec<Value> = self.reasoning_options(model, if model.id == session.model { session.reasoning_effort.as_deref() } else { None }).into_iter().map(|value| value["value"].clone()).collect();
+            let mut value = json!({"modelId":model.id,"name":short(&model.name,128),"_meta":{"harness":{"reasoningEfforts":efforts}}});
+            if let Some(description) = &model.description {
+                value["description"] = json!(short(description,256));
+            }
+            value
+        }).collect();
+        if !catalog.iter().any(|model| model.id == session.model) {
+            let fallback = ModelInfo::configured(&session.model);
+            let efforts: Vec<Value> = self
+                .reasoning_options(&fallback, session.reasoning_effort.as_deref())
+                .into_iter()
+                .map(|option| option["value"].clone())
+                .collect();
+            models.push(json!({"modelId":session.model,"name":short(&session.model,128),"description":"Model retained by this saved session","_meta":{"harness":{"reasoningEfforts":efforts}}}));
+        }
+        models
+    }
+
+    fn config_options(&self, session: &Session, catalog: &[ModelInfo]) -> Value {
+        let options: Vec<Value> = self
+            .available_models(session, catalog)
+            .into_iter()
+            .map(|model| {
+                let mut option =
+                    json!({"value":model["modelId"],"name":model["name"],"_meta":model["_meta"]});
+                if model["description"].is_string() {
+                    option["description"] = model["description"].clone();
+                }
+                option
+            })
+            .collect();
+        let fallback = ModelInfo::configured(&session.model);
+        let model = catalog
+            .iter()
+            .find(|model| model.id == session.model)
+            .unwrap_or(&fallback);
+        json!([
+            {"id":"model","name":"Model","category":"model","type":"select","currentValue":session.model,"options":options},
+            {"id":"reasoning_effort","name":"Reasoning effort","category":"thought_level","type":"select","currentValue":session.reasoning_effort.as_deref().unwrap_or("default"),"options":self.reasoning_options(model, session.reasoning_effort.as_deref())},
+            {"id":"mode","name":"Session mode","category":"mode","type":"select","currentValue":session.mode,"options":[
+                {"value":"code","name":"Code","description":"Explore and edit; writes and shell commands require approval"},
+                {"value":"plan","name":"Plan","description":"Read-only exploration; writes and shell commands disabled"}
+            ]}
+        ])
+    }
+
+    async fn set_option(&self, params: &Value, config_id: &str, value_key: &str) -> Result<Value> {
+        let value = selection(params, value_key)?;
+        let slot = self.slot(params).await?;
+        let _permit = slot
+            .busy
+            .clone()
+            .try_acquire_owned()
+            .context("Session is busy")?;
+        let mut session = slot.session.lock().await;
+        let previous = (
+            session.model.clone(),
+            session.reasoning_effort.clone(),
+            session.mode.clone(),
+        );
+        match config_id {
+            "model" => {
+                if value != session.model {
+                    let model = slot
+                        .models
+                        .iter()
+                        .find(|model| model.id == value)
+                        .ok_or(InvalidParams("Model is not available in this session"))?;
+                    session.reasoning_effort = session
+                        .reasoning_effort
+                        .take()
+                        .filter(|effort| self.effort_allowed(model, effort))
+                        .or_else(|| model.default_reasoning_effort.clone());
+                    session.model = value.to_owned();
+                }
+            }
+            "reasoning_effort" => {
+                if value == "default" {
+                    session.reasoning_effort = None;
+                } else {
+                    let fallback = ModelInfo::configured(&session.model);
+                    let model = slot
+                        .models
+                        .iter()
+                        .find(|model| model.id == session.model)
+                        .unwrap_or(&fallback);
+                    let saved_unknown_effort = !model.reasoning_capabilities_known
+                        && model.reasoning_efforts.is_empty()
+                        && session.reasoning_effort.as_deref() == Some(value);
+                    if !self.effort_allowed(model, value) && !saved_unknown_effort {
+                        return Err(InvalidParams(
+                            "Reasoning effort is not available for the selected model",
+                        )
+                        .into());
+                    }
+                    session.reasoning_effort = Some(value.to_owned());
+                }
+            }
+            "mode" => {
+                if !["code", "plan"].contains(&value) {
+                    return Err(InvalidParams("Unknown session mode").into());
+                }
+                if value != session.mode {
+                    ensure!(
+                        !slot
+                            .jobs
+                            .list()
+                            .await
+                            .iter()
+                            .any(|job| job["status"] == "running"),
+                        "Cancel running background tasks before changing mode"
+                    );
+                    session.mode = value.to_owned();
+                }
+            }
+            _ => return Err(InvalidParams("Unknown configuration option").into()),
+        }
+        if let Err(error) = self.store.save(&session).await {
+            (session.model, session.reasoning_effort, session.mode) = previous;
+            return Err(error);
+        }
+        if previous.2 != session.mode {
+            self.peer
+                .update(
+                    &session.id.to_string(),
+                    json!({"sessionUpdate":"current_mode_update","currentModeId":session.mode}),
+                )
+                .await?;
+        }
+        let config = self.config_options(&session, &slot.models);
+        self.peer
+            .update(
+                &session.id.to_string(),
+                json!({"sessionUpdate":"config_option_update","configOptions":config}),
+            )
+            .await?;
+        Ok(json!({"configOptions":config}))
     }
 
     async fn slot(&self, params: &Value) -> Result<Arc<Slot>> {
@@ -351,6 +539,7 @@ impl Server {
             session_id: session.id.to_string(),
             agent_id: None,
             model: session.model.clone(),
+            reasoning_effort: session.reasoning_effort.clone(),
             depth: 0,
             read_only: session.mode == "plan",
             cancel: cancel.clone(),
@@ -494,6 +683,28 @@ pub fn repair_calls(items: &mut Vec<Value>) {
     }
 }
 
+fn short(text: &str, limit: usize) -> String {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
+}
+
+fn effort_name(effort: &str) -> String {
+    match effort {
+        "none" => "None".into(),
+        "minimal" => "Minimal".into(),
+        "low" => "Low".into(),
+        "medium" => "Medium".into(),
+        "high" => "High".into(),
+        "xhigh" => "Extra high".into(),
+        "max" => "Max".into(),
+        "ultra" => "Ultra".into(),
+        _ => effort.into(),
+    }
+}
+
 fn modes(current: &str) -> Value {
     json!({"currentModeId":current,"availableModes":[{"id":"code","name":"Code","description":"Workspace reads; edits and shell require approval"},{"id":"plan","name":"Plan","description":"Read-only exploration; no writes or shell, including subagents"}]})
 }
@@ -609,6 +820,8 @@ pub async fn serve(config: Config) -> Result<()> {
                     Err(err) => {
                         let code = if err.to_string() == "Method not found" {
                             -32601
+                        } else if err.downcast_ref::<InvalidParams>().is_some() {
+                            -32602
                         } else {
                             -32000
                         };

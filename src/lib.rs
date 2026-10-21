@@ -5,6 +5,7 @@ pub mod config;
 pub mod jobs;
 pub mod mcp;
 pub mod metrics;
+pub mod models;
 pub mod multimodal;
 pub mod protocol;
 pub mod provider;

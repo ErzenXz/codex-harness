@@ -37,6 +37,8 @@ pub struct Session {
     pub cwd: PathBuf,
     pub model: String,
     pub mode: String,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     pub turns: VecDeque<Turn>,
     pub dropped_turns: usize,
 }
@@ -44,14 +46,33 @@ pub struct Session {
 impl Session {
     pub fn new(workspace: &Workspace, config: &Config) -> Self {
         Self {
-            version: 1,
+            version: 2,
             id: Uuid::new_v4(),
             cwd: workspace.root.clone(),
             model: config.model.clone(),
             mode: "code".into(),
+            reasoning_effort: config.reasoning_effort.clone(),
             turns: VecDeque::new(),
             dropped_turns: 0,
         }
+    }
+
+    fn validate_identifiers(&self) -> Result<()> {
+        ensure!(
+            crate::config::model_identifier(&self.model),
+            "Invalid persisted model identifier"
+        );
+        ensure!(
+            self.reasoning_effort.as_ref().is_none_or(|effort| {
+                !effort.is_empty()
+                    && effort.len() <= 64
+                    && effort
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            }),
+            "Invalid persisted reasoning identifier"
+        );
+        Ok(())
     }
 
     pub fn context(&mut self, budget: usize) -> Vec<Value> {
@@ -102,6 +123,7 @@ impl Store {
     }
 
     pub async fn save(&self, session: &Session) -> Result<()> {
+        session.validate_identifiers()?;
         let bytes = serde_json::to_vec(session)?;
         ensure!(
             bytes.len() as u64 <= MAX_SESSION_BYTES,
@@ -147,8 +169,9 @@ impl Store {
             "Session file too large"
         );
         let session: Session = serde_json::from_slice(&bytes)?;
+        session.validate_identifiers()?;
         ensure!(
-            session.version == 1 && session.id == id,
+            matches!(session.version, 1 | 2) && session.id == id,
             "Invalid session format"
         );
         ensure!(
@@ -167,6 +190,53 @@ impl Store {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn persisted_identifiers_reject_oversized_control_and_invalid_reasoning() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let mut session = Session::new(&workspace, &Config::default());
+        let path = store.root.join(format!("{}.json", session.id));
+        for model in [
+            String::new(),
+            "bad\nmodel".into(),
+            "x".repeat(257),
+            "é".repeat(129),
+        ] {
+            session.model = model;
+            assert!(store.save(&session).await.is_err());
+            tokio::fs::write(&path, serde_json::to_vec(&session).unwrap())
+                .await
+                .unwrap();
+            assert!(store.load(session.id, &workspace).await.is_err());
+        }
+        session.model = "provider/custom:model".into();
+        for effort in [
+            String::new(),
+            "bad\neffort".into(),
+            "x".repeat(65),
+            "bad effort".into(),
+        ] {
+            session.reasoning_effort = Some(effort);
+            assert!(store.save(&session).await.is_err());
+            tokio::fs::write(&path, serde_json::to_vec(&session).unwrap())
+                .await
+                .unwrap();
+            assert!(store.load(session.id, &workspace).await.is_err());
+        }
+        session.model = "é".repeat(128);
+        for version in [1, 2] {
+            session.version = version;
+            for effort in [None, Some("persistent".into()), Some("x".repeat(64))] {
+                session.reasoning_effort = effort.clone();
+                store.save(&session).await.unwrap();
+                let loaded = store.load(session.id, &workspace).await.unwrap();
+                assert_eq!(loaded.reasoning_effort, effort);
+                assert_eq!(loaded.version, version);
+            }
+        }
+    }
 
     #[test]
     fn counted_json_size_matches_encoding_with_escapes_and_unicode() {
@@ -199,6 +269,7 @@ mod tests {
             cwd: PathBuf::new(),
             model: String::new(),
             mode: "code".into(),
+            reasoning_effort: None,
             turns: VecDeque::from([first, last]),
             dropped_turns: 0,
         };

@@ -87,6 +87,10 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         ensure!(
+            model_identifier(&self.model),
+            "model must contain 1..=256 UTF-8 bytes and no control characters"
+        );
+        ensure!(
             (1..=256).contains(&self.max_mcp_connections),
             "max_mcp_connections must be 1..=256"
         );
@@ -179,12 +183,19 @@ impl Config {
             "request_timeout_secs must be 1..=3600"
         );
         if let Some(effort) = &self.reasoning_effort
-            && !["none", "minimal", "low", "medium", "high", "xhigh"].contains(&effort.as_str())
+            && ![
+                "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+            ]
+            .contains(&effort.as_str())
         {
             bail!("Unsupported reasoning_effort");
         }
         Ok(())
     }
+}
+
+pub(crate) fn model_identifier(model: &str) -> bool {
+    !model.trim().is_empty() && model.len() <= 256 && !model.chars().any(char::is_control)
 }
 
 // Keep the established XDG layout on Unix; Windows has no HOME by default.
@@ -212,6 +223,35 @@ fn default_state_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configured_model_identifiers_have_byte_and_control_bounds() {
+        for model in [
+            String::new(),
+            "   ".into(),
+            "bad\nmodel".into(),
+            "x".repeat(257),
+            "é".repeat(129),
+        ] {
+            let config = Config {
+                model,
+                ..Config::default()
+            };
+            assert!(config.validate().is_err());
+        }
+        for model in [
+            "provider/custom:model".into(),
+            "x".repeat(256),
+            "é".repeat(128),
+        ] {
+            Config {
+                model,
+                ..Config::default()
+            }
+            .validate()
+            .unwrap();
+        }
+    }
 
     #[test]
     fn default_state_path_is_absolute_and_valid() {

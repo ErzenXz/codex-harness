@@ -6,6 +6,11 @@ browsers or models until explicitly needed. Cap concurrency to your machine and
 provider allowance; unload idle sessions with `_harness/session/unload` to release
 retained history and jobs.
 
+Version 0.3 adds lazy model discovery using the existing HTTP pool. Sessions share
+one immutable catalog; in-memory and private disk caches last five minutes.
+Discovery has a five-second deadline, a 2 MiB input limit and a 256 KiB normalized
+metadata limit. It adds no runtime dependencies or background polling.
+
 Version 0.2 removes repeated streamed-argument copies, appends SSE line fragments
 in bulk, moves completed output, counts JSON without duplicate buffers and trims
 history without cloning the result. Built-in grep reuses one bounded file buffer.
