@@ -38,5 +38,6 @@ with tarfile.open(a.tarball, "r:gz") as tar:
         if os == "linux": assert magic == b"\x7fELF"
         elif os == "win32": assert magic[:2] == b"MZ"
         else: assert magic in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe")
-        assert binary.mode & 0o111, "Missing executable permission"
+        if os != "win32":
+            assert binary.mode & 0o111, "Missing executable permission"
 print(f"Verified {manifest['name']}@{manifest['version']}")
