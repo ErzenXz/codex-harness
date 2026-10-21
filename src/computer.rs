@@ -230,7 +230,7 @@ async fn run(
         command.as_std_mut().process_group(0);
     }
     let mut child=command.spawn().context("Computer backend unavailable; install xdotool and ImageMagick and provide DISPLAY/XAUTHORITY")?;
-    let _group = crate::jobs::ProcessGroup(child.id());
+    let _group = crate::jobs::ProcessGroup::new(&mut child)?;
     let mut stdout = child
         .stdout
         .take()

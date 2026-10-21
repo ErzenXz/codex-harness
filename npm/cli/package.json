@@ -1,0 +1,26 @@
+{
+  "name": "codex-harness",
+  "version": "0.2.0",
+  "description": "Small native Rust coding-agent backend: ACP, streaming, subagents, MCP and ChatGPT sign-in",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ErzenXz/codex-harness.git",
+    "directory": "npm/cli"
+  },
+  "homepage": "https://github.com/ErzenXz/codex-harness#readme",
+  "bugs": "https://github.com/ErzenXz/codex-harness/issues",
+  "keywords": ["agent", "acp", "codex", "mcp", "rust"],
+  "bin": {"codex-harness": "bin/codex-harness.cjs"},
+  "files": ["bin", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"],
+  "engines": {"node": ">=22.15.0"},
+  "publishConfig": {"access": "public", "registry": "https://registry.npmjs.org/"},
+  "optionalDependencies": {
+    "@erzenx/codex-harness-darwin-arm64": "0.2.0",
+    "@erzenx/codex-harness-darwin-x64": "0.2.0",
+    "@erzenx/codex-harness-linux-arm64": "0.2.0",
+    "@erzenx/codex-harness-linux-x64": "0.2.0",
+    "@erzenx/codex-harness-win32-arm64": "0.2.0",
+    "@erzenx/codex-harness-win32-x64": "0.2.0"
+  }
+}

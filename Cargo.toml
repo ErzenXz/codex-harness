@@ -1,6 +1,6 @@
 [package]
 name = "codex-harness"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A quiet, ACP-native Rust harness for OpenAI coding agents"
@@ -27,6 +27,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tempfile = "3"
 
 [profile.release]
+opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = true
@@ -34,3 +35,6 @@ panic = "abort"
 
 [lints.clippy]
 await_holding_lock = "deny"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }

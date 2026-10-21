@@ -188,7 +188,7 @@ impl Provider {
                     }
                     continue;
                 }
-                let event: Value =
+                let mut event: Value =
                     serde_json::from_str(&data).context("Invalid OpenAI SSE JSON")?;
                 if chat {
                     if event["usage"].is_object() {
@@ -230,7 +230,7 @@ impl Provider {
                             .context("Missing response output")?;
                         ensure!(output.len() <= 128, "Too many model output items");
                         ensure!(
-                            serde_json::to_vec(output)?.len() <= self.config.context_bytes,
+                            crate::session::json_bytes(output)? <= self.config.context_bytes,
                             "Model output exceeds context limit"
                         );
                         for item in output {
@@ -243,10 +243,15 @@ impl Provider {
                                 );
                             }
                         }
+                        let incomplete = event["type"] == "response.incomplete";
+                        let output = event["response"]["output"].take();
+                        let Value::Array(output) = output else {
+                            unreachable!("validated output")
+                        };
                         return Ok(Response {
-                            output: output.clone(),
+                            output,
                             text,
-                            incomplete: event["type"] == "response.incomplete",
+                            incomplete,
                         });
                     }
                     "response.failed" | "error" => bail!("OpenAI stream reported an error"),
@@ -396,12 +401,14 @@ impl ChatStream {
                             self.bytes <= self.limit,
                             "Tool payload exceeds context limit"
                         );
-                        let current = call[target].as_str().unwrap_or_default();
+                        let Value::String(current) = &mut call[target] else {
+                            unreachable!("streamed call fields are strings")
+                        };
                         ensure!(
                             current.len() + part.len() <= 256 * 1024,
                             "Tool arguments exceed size limit"
                         );
-                        call[target] = json!(format!("{current}{part}"));
+                        current.push_str(part);
                     }
                 }
             }
@@ -429,7 +436,7 @@ impl ChatStream {
             output.push(call);
         }
         ensure!(
-            serde_json::to_vec(&output)?.len() <= self.limit,
+            crate::session::json_bytes(&output)? <= self.limit,
             "Model output exceeds context limit"
         );
         Ok(Response {
@@ -462,13 +469,21 @@ impl SseDecoder {
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<String>> {
         let mut events = Vec::new();
-        for byte in bytes {
-            if *byte != b'\n' {
-                ensure!(
-                    self.line.len() + self.data.len() < self.limit,
-                    "SSE event exceeds size limit"
-                );
-                self.line.push(*byte);
+        // Append whole line fragments instead of growing and checking the buffer per byte.
+        // A fragment may end in the middle of UTF-8; decode only after the newline arrives.
+        for fragment in bytes.split_inclusive(|byte| *byte == b'\n') {
+            let complete = fragment.last() == Some(&b'\n');
+            let content = if complete {
+                &fragment[..fragment.len() - 1]
+            } else {
+                fragment
+            };
+            ensure!(
+                self.line.len() + self.data.len() + content.len() <= self.limit,
+                "SSE event exceeds size limit"
+            );
+            self.line.extend_from_slice(content);
+            if !complete {
                 continue;
             }
             let line = std::str::from_utf8(&self.line)
@@ -487,5 +502,52 @@ impl SseDecoder {
             self.line.clear();
         }
         Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn many_small_tool_deltas_append_without_replacing_the_buffer() {
+        let mut stream = ChatStream::default();
+        stream.push(&json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"one","function":{"name":"write_file","arguments":""}}]}}]})).unwrap();
+        // Reserve once to detect accidental replacement/reallocation on each delta.
+        let Value::String(arguments) = &mut stream.calls.get_mut(&0).unwrap()["arguments"] else {
+            panic!()
+        };
+        arguments.reserve(4096);
+        let buffer = arguments.as_ptr();
+        let delta = json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"x"}}]}}]});
+        for _ in 0..4096 {
+            stream.push(&delta).unwrap();
+        }
+        let Value::String(arguments) = &stream.calls[&0]["arguments"] else {
+            panic!()
+        };
+        assert_eq!(arguments.len(), 4096);
+        assert_eq!(arguments.as_ptr(), buffer);
+        stream
+            .push(&json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]}))
+            .unwrap();
+        assert_eq!(
+            stream.finish(String::new()).unwrap().output[0]["arguments"],
+            "x".repeat(4096)
+        );
+    }
+
+    #[test]
+    fn sse_limits_apply_across_fragments_and_reset_per_event() {
+        let mut decoder = SseDecoder::with_limit(12);
+        assert!(decoder.push(b"data: hello").unwrap().is_empty());
+        assert!(decoder.push(b"!\n").unwrap().is_empty());
+        assert_eq!(
+            decoder.push(b"\ndata: next\n\n").unwrap(),
+            ["hello!", "next"]
+        );
+        let mut decoder = SseDecoder::with_limit(12);
+        decoder.push(b"data: hello").unwrap();
+        assert!(decoder.push(b"!!").is_err());
     }
 }

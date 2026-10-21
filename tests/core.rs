@@ -402,7 +402,7 @@ async fn workspace_rejects_traversal_and_protected_paths() {
             .is_err()
     );
     let target = workspace.resolve("src/new.rs", true).await.unwrap();
-    assert_eq!(target, dir.path().join("src/new.rs"));
+    assert_eq!(target, workspace.root.join("src/new.rs"));
     let file = dir.path().join("binary");
     tokio::fs::write(&file, b"hello\0world").await.unwrap();
     assert!(read_bounded(&file, 100).await.is_err());

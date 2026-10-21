@@ -187,12 +187,19 @@ impl Auth {
         options.create_new(true).write(true);
         #[cfg(unix)]
         options.mode(0o600);
-        let mut file = options.open(&path).await?;
-        file.write_all(&serde_json::to_vec(tokens)?).await?;
-        file.sync_all().await?;
-        drop(file);
-        tokio::fs::rename(path, self.path()).await?;
-        Ok(())
+        let result: Result<()> = async {
+            let mut file = options.open(&path).await?;
+            file.write_all(&serde_json::to_vec(tokens)?).await?;
+            file.sync_all().await?;
+            drop(file);
+            tokio::fs::rename(&path, self.path()).await?;
+            Ok(())
+        }
+        .await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+        result
     }
 
     pub async fn login(config: &Config) -> Result<()> {
@@ -314,4 +321,40 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn refreshed_credentials_replace_existing_file_without_temporary_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = Config {
+            state_dir: directory.path().join("state"),
+            ..Config::default()
+        };
+        let auth = Auth::new(&config);
+        auth.save(&json!({"access_token":"first"})).await.unwrap();
+        auth.save(&json!({"access_token":"refreshed"}))
+            .await
+            .unwrap();
+        let saved: Value =
+            serde_json::from_slice(&tokio::fs::read(auth.path()).await.unwrap()).unwrap();
+        assert_eq!(saved["access_token"], "refreshed");
+        assert_eq!(std::fs::read_dir(&config.state_dir).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_credential_save_removes_temporary_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = Config {
+            state_dir: directory.path().join("state"),
+            ..Config::default()
+        };
+        let auth = Auth::new(&config);
+        tokio::fs::create_dir_all(auth.path()).await.unwrap();
+        assert!(auth.save(&json!({"access_token":"test"})).await.is_err());
+        assert_eq!(std::fs::read_dir(&config.state_dir).unwrap().count(), 1);
+    }
 }

@@ -24,6 +24,11 @@ pub async fn search(
     limit: usize,
     cancel: &CancellationToken,
 ) -> Result<Value> {
+    // Match the canonical workspace root even when callers use a platform alias
+    // such as macOS /var for /private/var. Otherwise the private state exclusion
+    // silently misses both ripgrep and the built-in walker.
+    let canonical_state = tokio::fs::canonicalize(state).await.ok();
+    let state = canonical_state.as_deref().unwrap_or(state);
     let pattern = string(args, "pattern")?.to_owned();
     ensure!(pattern.len() <= 4096, "Pattern too long");
     let _permit = tokio::select! {
@@ -44,6 +49,7 @@ pub async fn search(
         let mut output = String::new();
         let mut count = 0;
         let mut capped = false;
+        let mut bytes = Vec::new();
         let walker = WalkBuilder::new(&root).hidden(true).git_ignore(true).require_git(false).follow_links(false).build();
         for entry in walker.take(20001) {
             ensure!(!cancel.is_cancelled(), "Cancelled");
@@ -57,7 +63,7 @@ pub async fn search(
             if let Some(regex) = &regex {
                 use std::io::Read;
                 if entry.metadata()?.len() > 1024 * 1024 { continue; }
-                let mut bytes = Vec::new();
+                bytes.clear();
                 std::fs::File::open(entry.path())?.take(1024 * 1024).read_to_end(&mut bytes)?;
                 if bytes.contains(&0) { continue; }
                 for (i,line) in String::from_utf8_lossy(&bytes).lines().enumerate() {

@@ -7,6 +7,7 @@ import platform
 import os
 from pathlib import Path
 import statistics
+import subprocess
 import time
 
 os.environ.setdefault("HARNESS_BIN", "target/release/codex-harness")
@@ -16,6 +17,9 @@ from stdio import BINARY, Harness, call, final, response
 def memory(pid):
     status = Path(f"/proc/{pid}/status")
     if not status.exists():
+        if platform.system() == "Darwin":
+            result = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, check=True)
+            return {"VmRSS": int(result.stdout.strip())}
         return None
     values = {}
     for line in status.read_text().splitlines():
@@ -87,7 +91,7 @@ async def benchmark(agents, delay):
             "synthetic_prompts_per_second": round(agents / seconds, 1),
             "prompt_latency_ms": {"p50": round(statistics.median(ordered), 2), "p95": round(ordered[min(len(ordered)-1, int(len(ordered)*.95))], 2)},
             "peak_simultaneous_mock_requests": model_peak,
-            "linux_process_memory_kib_and_threads": {"idle": idle_memory, "loaded": loaded_memory, "after_prompts": concurrent_memory},
+            "process_memory_kib_and_threads": {"idle": idle_memory, "loaded": loaded_memory, "after_prompts": concurrent_memory},
             "search_10000_files_end_to_end_ms": {"samples": [round(t, 2) for t in search_ms], "median": round(statistics.median(search_ms), 2), "engines": sorted(engines)},
         }
 

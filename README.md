@@ -1,128 +1,113 @@
 # Codex Harness
 
-A fast, quiet Rust backend for coding agents. Your **ACP-compatible app provides
-the UI**; this runs behind it. Includes ChatGPT subscription login, file/search
-tools, subagents, background jobs, MCP servers and optional computer use.
+A small, quiet native Rust backend for coding agents. Your ACP-compatible app
+provides the UI; the harness handles streaming, file/search tools, isolated
+subagents, background jobs, MCP servers and optional computer use.
 
-## 1. Install
-
-You need **Git** and **[Rust 1.88+](https://rustup.rs/)**. Commands below use a
-Linux/macOS shell; on Windows, use WSL. No Node.js or Python needed to run it.
-[ripgrep](https://github.com/BurntSushi/ripgrep#installation) is recommended for
-fast search, but optional: a Rust search fallback is built in.
+## Install
 
 ```sh
-git clone https://github.com/ErzenXz/codex-harness.git
-cd codex-harness
-cargo install --path . --locked
-codex-harness --version
+pnpm add -g codex-harness
 ```
 
-This builds from source and installs the executable into Cargo's bin directory
-(normally `~/.cargo/bin`). If the command is not found, restart your terminal or
-run `export PATH="$HOME/.cargo/bin:$PATH"`.
+Or use `npm install -g codex-harness`. Requires Node.js 22.15+ for the installer
+launcher. No Rust, Python, compilation, postinstall script or runtime download.
+Only the native package for your OS/CPU is installed. Supports macOS, Linux and
+Windows on arm64 and x64. Linux binaries use static musl and work on glibc and
+musl distributions. Windows runs natively; WSL is optional.
 
-## 2. Sign in with ChatGPT
+Prefer no Node.js at all? Download the matching archive from
+[Releases](https://github.com/ErzenXz/codex-harness/releases), verify it against
+`SHA256SUMS`, and put the executable on PATH. `ripgrep` is recommended for faster
+search; a bounded Rust fallback is built in.
 
-While still in the cloned repo, copy the starter config **once** to your user
-config directory, outside any project an agent will edit:
+## Sign in
 
 ```sh
-mkdir -p "$HOME/.config/codex-harness"
-cp -n examples/chatgpt.toml "$HOME/.config/codex-harness/chatgpt.toml"
-codex-harness login --config "$HOME/.config/codex-harness/chatgpt.toml"
+codex-harness login
 ```
 
-Open the link printed by `login`, enter its code, and approve access. If requested,
-enable device-code login in your ChatGPT security settings. Your plan must allow
-the model; subscription usage limits still apply.
+Open the printed link, enter the code and approve access. Enable device-code
+login in ChatGPT security settings if requested. Your plan must allow the model;
+subscription limits still apply. No API key is needed for subscription sign-in.
 
-The starter config uses **`gpt-6-luna`, low reasoning, and at most 10 simultaneous
-model requests/subagents**. This is a concurrency cap, not a total usage budget.
-No API key is needed for subscription login.
+Defaults use `gpt-6-luna`. To choose reasoning, concurrency or another provider,
+copy a [starter configuration](examples/) to a trusted user directory and pass
+`--config /absolute/path/config.toml` to **both login and the ACP launcher**.
+[API key and provider setup](docs/reference.md#authentication-and-providers).
+No configuration is read from the project being edited.
 
-## 3. Run from your ACP app
+## Connect your ACP app
 
-Tell your ACP app to launch `codex-harness` with these arguments. This is a generic
-launcher definition; the settings location/outer format depends on your app:
+Set its agent command to `codex-harness`, with arguments `["--acp"]`. For the
+lowest overhead, get the absolute native executable path once:
+
+```sh
+codex-harness --print-binary-path
+```
+
+Use that path directly in your app's launcher:
 
 ```json
 {
-  "command": "/home/YOU/.cargo/bin/codex-harness",
-  "args": [
-    "--acp",
-    "--config",
-    "/home/YOU/.config/codex-harness/chatgpt.toml"
-  ],
+  "command": "/absolute/path/printed/above/codex-harness",
+  "args": ["--acp"],
   "env": {}
 }
 ```
 
-**Replace both example paths with your real absolute paths.** Find them with:
+On Windows the path ends in `.exe`. If using a custom config, append
+`"--config", "/absolute/path/config.toml"` to `args`. Your ACP app sends prompts
+and approvals over stdin/stdout. No files need to be installed in your projects.
+
+A blank terminal is normal if you run the harness yourself: it waits for ACP
+messages. There is no terminal chat, web server or status banner. Closed stdin
+shuts it down. On macOS/Linux the npm launcher replaces itself with Rust using
+Node's `execve` where available; Windows uses a child process. Direct native
+launch avoids Node startup on every platform.
+
+## Small by design
+
+- One current-thread async runtime, pooled HTTP and lazy shared MCP connections.
+- In-place streamed tool arguments and SSE fragments; no repeated whole-buffer
+  copies. JSON budget checks count bytes without allocating another JSON buffer.
+- Whole-turn history eviction, bounded files/streams/tool output, backpressure,
+  explicit concurrency caps and session unloading.
+- No telemetry, background updater, daemon or bundled browser/model/runtime.
+- Permission-gated edits/shell/MCP tools, plan mode, subagent roles, cancellation,
+  persistence and observed provider usage reporting stay available.
+
+Performance figures and reproducible tests live in
+[Performance](docs/performance.md). These measure local overhead; model inference,
+provider limits and workload determine end-to-end agent performance.
+
+Native desktop control requires Linux X11 and is disabled by default. For macOS
+and Windows desktop/browser control, connect a trusted MCP server. Approved shell,
+MCP and desktop tools can access the host; they are **not an OS sandbox**.
+Credentials are stored unencrypted in private local state. See
+[Security and limits](docs/reference.md#safety-boundaries).
+
+## Update, remove, build
 
 ```sh
-command -v codex-harness
-printf '%s\n' "$HOME/.config/codex-harness/chatgpt.toml"
+pnpm add -g codex-harness@latest
+codex-harness logout
+pnpm remove -g codex-harness
 ```
 
-Your app starts the process and sends prompts/approvals over stdin/stdout. It can
-open sessions for any project directory; no harness files need to go in that
-project. Keep the config in your user directory and always pass `--config`.
+Restart your ACP agent after updating. If you launch the printed native path,
+refresh that path after updating. Logout removes local login credentials; retained
+conversations remain in the state directory. On Unix state defaults to
+`$XDG_STATE_HOME/codex-harness` or `~/.local/state/codex-harness`; on Windows it is
+`%LOCALAPPDATA%\codex-harness`. `CODEX_HARNESS_STATE_DIR` overrides it.
 
-To start it yourself instead:
+Source install (Rust 1.88+ and your OS build tools required):
 
 ```sh
-codex-harness --acp --config "$HOME/.config/codex-harness/chatgpt.toml"
+cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.0 --locked
 ```
 
-**A blank terminal is normal.** There is no terminal chat, web server or status
-banner. Without an ACP client, it just waits for protocol messages. Press
-**Ctrl+C** to stop; don't type chat messages into the terminal or use `&` as a
-replacement for an ACP launcher.
+Missing platform package? Reinstall with optional dependencies enabled; do not
+use `--no-optional` or `--omit=optional`. There is no fallback network download.
 
-## Other providers and optional tools
-
-| Want to… | Use |
-| --- | --- |
-| Use an OpenAI API key | [API-key setup](docs/reference.md#openai-api-key) |
-| Use OpenRouter | [Starter config](examples/openrouter.toml); supply `OPENROUTER_API_KEY` in your app's launcher environment |
-| Use a local Ollama model | [Starter config](examples/ollama.toml); install Ollama and pull the model separately |
-| Add MCP tools | [MCP setup](docs/reference.md#mcp-servers); your ACP client supplies `mcpServers` when creating/loading a session |
-| Enable computer use | [Computer setup](docs/reference.md#opt-in-computer-use); native driver requires Linux X11, xdotool and ImageMagick |
-
-Copy a different starter config into your user config directory and point
-`--config` at it. MCP and computer use are optional; neither starts extra
-processes until needed, and native computer use is off by default.
-
-**Permissions matter:** writes, edits, shell commands, MCP calls and desktop
-actions need approval from your ACP client. Approved shell/MCP/desktop access is
-**not an OS sandbox**. Login tokens are stored unencrypted locally; screenshots
-are shared with the model provider. [Security details](docs/reference.md#safety-boundaries).
-
-## Update or sign out
-
-Update from inside your clone:
-
-```sh
-git pull --ff-only
-cargo install --path . --locked --force
-```
-
-Restart your ACP app's agent process after updating. Your user config is kept.
-To remove saved login credentials, run the following and stop/restart any running
-harness processes (they cache credentials):
-
-```sh
-codex-harness logout --config "$HOME/.config/codex-harness/chatgpt.toml"
-```
-
-## Troubleshooting
-
-- **`cargo` missing / Rust too old:** install or update Rust using [rustup](https://rustup.rs/), then reopen the terminal.
-- **Linker missing:** install your OS build tools (Ubuntu/Debian: `build-essential`; macOS: Xcode Command Line Tools).
-- **Installed, but nothing appears:** expected—connect an ACP client as in step 3.
-- **It immediately exits:** check stderr/config paths; closed stdin also shuts it down.
-- **Login/model access fails:** check device-code login, your plan's model access and remaining allowance. There is no automatic model fallback.
-- **Wrong provider/model:** pass the intended `--config`; `OPENAI_MODEL` and `OPENAI_BASE_URL` override config values. Avoid stale launcher environment settings.
-
-[Technical reference](docs/reference.md) · [Development & tests](docs/reference.md#development) · [Performance & limits](docs/reference.md#performance-and-memory)
+[Technical reference](docs/reference.md) · [Development and tests](docs/reference.md#development) · [Release process](docs/releasing.md)

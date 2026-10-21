@@ -106,7 +106,7 @@ pub fn run_with_instructions<'a>(
 ) -> Pin<Box<dyn Future<Output = Result<AgentResult>> + Send + 'a>> {
     Box::pin(async move {
         let Toolset { definitions, mcp } = toolset;
-        let definition_bytes = serde_json::to_vec(&definitions)?.len();
+        let definition_bytes = crate::session::json_bytes(&definitions)?;
         let mut last_text = String::new();
         for _ in 0..ctx.config.max_turn_steps {
             if ctx.cancel.is_cancelled() {
@@ -115,7 +115,7 @@ pub fn run_with_instructions<'a>(
                     stop_reason: "cancelled",
                 });
             }
-            let bytes = serde_json::to_vec(items)?.len();
+            let bytes = crate::session::json_bytes(items)?;
             ensure!(
                 bytes + instructions.len() + definition_bytes <= ctx.config.context_bytes,
                 "Active context budget exhausted; start a new session or increase context_bytes"

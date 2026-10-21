@@ -142,11 +142,19 @@ impl Jobs {
         session: &str,
     ) -> Result<Value> {
         let job = self.reserve("shell", parent, cancel.child_token()).await?;
-        let mut process = if cfg!(windows) {
+        #[cfg(windows)]
+        let mut process = {
+            use std::os::windows::process::CommandExt;
             let mut command_builder = Command::new("cmd.exe");
-            command_builder.args(["/C", command]);
+            // cmd.exe uses shell quoting rather than C argv quoting. /S strips
+            // the wrapper quotes while preserving quoted paths in the command.
             command_builder
-        } else {
+                .as_std_mut()
+                .raw_arg(format!("/D /S /C \"{command}\""));
+            command_builder
+        };
+        #[cfg(not(windows))]
+        let mut process = {
             let mut command_builder = Command::new("/bin/sh");
             command_builder.args(["-c", command]);
             command_builder
@@ -158,20 +166,7 @@ impl Jobs {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .env_clear();
-        for key in [
-            "PATH",
-            "HOME",
-            "USER",
-            "LANG",
-            "LC_ALL",
-            "TMPDIR",
-            "SYSTEMROOT",
-            "TEMP",
-        ] {
-            if let Some(value) = std::env::var_os(key) {
-                process.env(key, value);
-            }
-        }
+        inherit_process_environment(&mut process);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -185,7 +180,15 @@ impl Jobs {
                 return Err(error.into());
             }
         };
-        let mut group = ProcessGroup(child.id());
+        let mut group = match ProcessGroup::new(&mut child) {
+            Ok(group) => group,
+            Err(error) => {
+                let _ = child.kill().await;
+                job.finish("failed", error.to_string(), None, self.output_limit)
+                    .await;
+                return Err(error);
+            }
+        };
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
         let job_clone = job.clone();
@@ -285,14 +288,114 @@ async fn drain(mut reader: impl AsyncRead + Unpin, job: Arc<Job>, limit: usize) 
     }
 }
 
-pub(crate) struct ProcessGroup(pub(crate) Option<u32>);
+// Forward only execution essentials, never the host's API keys or auth tokens.
+pub(crate) fn inherit_process_environment(command: &mut Command) {
+    for key in [
+        "PATH",
+        "HOME",
+        "USER",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "APPDATA",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+}
+
+pub(crate) struct ProcessGroup {
+    #[cfg(unix)]
+    pid: Option<u32>,
+    #[cfg(windows)]
+    job: std::os::windows::io::OwnedHandle,
+}
+
 impl ProcessGroup {
+    pub(crate) fn new(child: &mut tokio::process::Child) -> Result<Self> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+            use windows_sys::Win32::System::JobObjects::{
+                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                SetInformationJobObject,
+            };
+            // The owned handle closes even when setting limits or assignment fails.
+            let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            ensure!(
+                !handle.is_null(),
+                "Cannot create process job: {}",
+                std::io::Error::last_os_error()
+            );
+            let job = unsafe { OwnedHandle::from_raw_handle(handle) };
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let configured = unsafe {
+                SetInformationJobObject(
+                    job.as_raw_handle(),
+                    JobObjectExtendedLimitInformation,
+                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of_val(&limits) as u32,
+                )
+            };
+            ensure!(
+                configured != 0,
+                "Cannot configure process job: {}",
+                std::io::Error::last_os_error()
+            );
+            let process = child.raw_handle().context("Missing child process handle")?;
+            let assigned = unsafe { AssignProcessToJobObject(job.as_raw_handle(), process) };
+            if assigned == 0 {
+                let error = std::io::Error::last_os_error();
+                // Very short commands can exit before assignment. Preserve their
+                // cached exit status; fail closed if a live child is uncontained.
+                ensure!(
+                    child.try_wait()?.is_some(),
+                    "Cannot contain process tree: {error}"
+                );
+            }
+            Ok(Self { job })
+        }
+        #[cfg(unix)]
+        {
+            Ok(Self { pid: child.id() })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = child;
+            Ok(Self {})
+        }
+    }
+
     pub(crate) fn kill(&mut self) {
         #[cfg(unix)]
-        if let Some(pid) = self.0.take() {
+        if let Some(pid) = self.pid.take() {
             // Child is started in its own process group; kill descendants, not the host.
             unsafe {
                 libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            unsafe {
+                windows_sys::Win32::System::JobObjects::TerminateJobObject(
+                    self.job.as_raw_handle(),
+                    1,
+                );
             }
         }
     }
@@ -300,5 +403,80 @@ impl ProcessGroup {
 impl Drop for ProcessGroup {
     fn drop(&mut self) {
         self.kill();
+    }
+}
+
+#[cfg(windows)]
+use anyhow::Context;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_shell_supports_home_environment_and_quoted_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let jobs = Jobs::new(4, 1024);
+        let (peer, mut updates) = Peer::channel(32);
+        let drain = tokio::spawn(async move { while updates.recv().await.is_some() {} });
+        for command in [
+            "if not defined USERPROFILE exit /b 7",
+            "echo ok>\"file with spaces.txt\" & type \"file with spaces.txt\"",
+        ] {
+            let output = jobs
+                .shell(
+                    directory.path(),
+                    command,
+                    5,
+                    false,
+                    None,
+                    &CancellationToken::new(),
+                    &peer,
+                    "windows-test",
+                )
+                .await
+                .unwrap();
+            assert_eq!(output["status"], "completed", "{output}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("file with spaces.txt"))
+                .unwrap()
+                .trim(),
+            "ok"
+        );
+        drain.abort();
+    }
+
+    #[tokio::test]
+    #[cfg(any(unix, windows))]
+    async fn process_container_terminates_its_child() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd.exe");
+            command.args(["/D", "/C", "ping -n 30 127.0.0.1 >nul"]);
+            command
+        };
+        #[cfg(unix)]
+        let mut command = {
+            use std::os::unix::process::CommandExt;
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "sleep 30"]);
+            command.as_std_mut().process_group(0);
+            command
+        };
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        let mut group = ProcessGroup::new(&mut child).unwrap();
+        group.kill();
+        let status = tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!status.success());
     }
 }

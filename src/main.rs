@@ -1,19 +1,7 @@
 use codex_harness::{config::Config, protocol};
 
 fn main() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .max_blocking_threads(
-            std::thread::available_parallelism().map_or(8, |n| n.get().clamp(4, 32)),
-        )
-        .build()
-        .expect("Could not create runtime");
-    runtime.block_on(run());
-    // Tokio's stdin reader cannot interrupt an OS read when the client keeps the pipe open.
-    runtime.shutdown_timeout(std::time::Duration::from_millis(250));
-}
-
-async fn run() {
+    // Handle metadata without constructing an async runtime or touching user state.
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--version"] {
         println!("codex-harness {}", env!("CARGO_PKG_VERSION"));
@@ -25,6 +13,19 @@ async fn run() {
         );
         return;
     }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(
+            std::thread::available_parallelism().map_or(8, |n| n.get().clamp(4, 32)),
+        )
+        .build()
+        .expect("Could not create runtime");
+    runtime.block_on(run(args));
+    // Tokio's stdin reader cannot interrupt an OS read when the client keeps the pipe open.
+    runtime.shutdown_timeout(std::time::Duration::from_millis(250));
+}
+
+async fn run(args: Vec<String>) {
     let mut path = None;
     let mut action = "acp";
     let mut index = 0;

@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-BINARY = Path(os.environ.get("HARNESS_BIN", "target/debug/codex-harness")).resolve()
+BINARY = Path(os.environ.get("HARNESS_BIN", "target/debug/codex-harness" + (".exe" if os.name == "nt" else ""))).resolve()
 FIXTURE_JPEG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
 
 
@@ -32,6 +32,25 @@ def call(name, args, ident="call-1"):
 
 def mcp_tool(body,prefix):
     return next(t["name"] for t in body["tools"] if t["name"].startswith(prefix))
+
+
+def process_alive(pid):
+    if os.name != "nt":
+        os.kill(pid, 0)
+        return
+    # os.kill(pid, 0) on Windows can terminate a process; query its handle instead.
+    import ctypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        raise ProcessLookupError(pid)
+    try:
+        code = ctypes.c_ulong()
+        if not kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)) or code.value != 259:
+            raise ProcessLookupError(pid)
+    finally:
+        kernel.CloseHandle(ctypes.c_void_p(handle))
 
 
 class Harness:
@@ -211,11 +230,12 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             pid=json.loads(log.read_text().splitlines()[0])["pid"]
             await h.rpc("_harness/session/unload",{"sessionId":s})
             for _ in range(200):
-                try: os.kill(pid,0)
+                try: process_alive(pid)
                 except ProcessLookupError: break
                 await asyncio.sleep(.01)
             else: self.fail("Unloading the last MCP user left its process alive")
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Native desktop driver requires Linux X11")
     async def test_computer_actions_multimodal_output_scaling_and_literal_arguments(self):
         actions=[{"action":"screenshot"},{"action":"click","x":0,"y":0},{"action":"move","x":0,"y":0},{"action":"double_click","x":0,"y":0,"button":"right"},{"action":"type","text":"literal ; $(not-a-command) --text"},{"action":"key","key":"ctrl+l"},{"action":"scroll","direction":"down","amount":2}]
         async def model(body):
@@ -262,7 +282,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
                 await h.rpc("session/set_mode",{"sessionId":s,"modeId":mode})
                 result=await h.prompt(s)
                 self.assertEqual(result["result"]["stopReason"],"end_turn",result)
-                self.assertEqual(len(h.permissions),expected_permissions)
+                self.assertEqual(len(h.permissions), expected_permissions if sys.platform.startswith("linux") else 0)
                 self.assertNotIn("backend unavailable",json.dumps(h.requests))
 
     async def test_mcp_http_json_sse_pagination_and_negotiated_headers(self):
@@ -446,7 +466,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_cancel_preserves_independent_background_work(self):
         async def model(body):
             if any(i.get("type")=="function_call_output" for i in body["input"]): return final()
-            return response([call("shell",{"command":"sleep 20","background":True,"timeout_secs":30})])
+            return response([call("shell",{"command":("ping -n 21 127.0.0.1 >nul" if os.name == "nt" else "sleep 20"),"background":True,"timeout_secs":30})])
         async with Harness(model) as h:
             await h.initialize()
             session=await h.session()

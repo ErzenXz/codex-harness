@@ -20,7 +20,23 @@ impl Workspace {
     }
 
     pub fn protect(&mut self, path: PathBuf) {
-        self.protected.push(path);
+        // State paths may use /var while the workspace uses /private/var on
+        // macOS, or a non-verbatim drive path on Windows. Resolve the nearest
+        // existing ancestor even when the state directory is not created yet.
+        let mut ancestor = path.as_path();
+        let normalized = loop {
+            if let Ok(real) = std::fs::canonicalize(ancestor) {
+                break path
+                    .strip_prefix(ancestor)
+                    .map(|suffix| real.join(suffix))
+                    .ok();
+            }
+            match ancestor.parent() {
+                Some(parent) => ancestor = parent,
+                None => break None,
+            }
+        };
+        self.protected.push(normalized.unwrap_or(path));
     }
 
     pub async fn resolve(&self, path: &str, create: bool) -> Result<PathBuf> {
@@ -36,10 +52,8 @@ impl Workspace {
         } else {
             self.root.join(input)
         };
-        ensure!(
-            candidate.starts_with(&self.root),
-            "Path is outside the workspace"
-        );
+        // Canonicalize before containment checks: Windows canonical paths have
+        // a verbatim prefix (\\?\) that user-supplied absolute paths lack.
         let mut existing = candidate.as_path();
         while !tokio::fs::try_exists(existing).await? {
             ensure!(create, "Path does not exist");
@@ -67,7 +81,14 @@ impl Workspace {
         );
         let relative = resolved.strip_prefix(&self.root)?;
         for part in relative.components() {
-            let name = part.as_os_str().to_string_lossy();
+            let name = part.as_os_str().to_string_lossy().to_ascii_lowercase();
+            // NTFS alternate data streams can otherwise alias protected files,
+            // for example `.env::$DATA`, without matching their base names.
+            #[cfg(windows)]
+            ensure!(
+                !name.contains(':'),
+                "Alternate data streams are not accessible through file tools"
+            );
             if name == ".git"
                 || name == ".env"
                 || name.starts_with(".env.")
@@ -135,4 +156,61 @@ pub fn ensure_private_file(metadata: &std::fs::Metadata) -> Result<()> {
     #[cfg(not(unix))]
     let _ = metadata;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn absolute_paths_are_canonicalized_before_containment_checks() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(directory.path()).await.unwrap();
+        let target = directory.path().join("new.txt");
+        let resolved = workspace
+            .resolve(target.to_str().unwrap(), true)
+            .await
+            .unwrap();
+        assert_eq!(resolved, workspace.root.join("new.txt"));
+        let outside = tempfile::tempdir().unwrap();
+        assert!(
+            workspace
+                .resolve(outside.path().to_str().unwrap(), true)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn protected_paths_use_the_same_canonical_root_as_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut workspace = Workspace::new(directory.path()).await.unwrap();
+        workspace.protect(directory.path().join("future-state"));
+        assert!(
+            workspace
+                .resolve("future-state/auth.json", true)
+                .await
+                .is_err()
+        );
+        assert!(workspace.resolve("source.rs", true).await.is_ok());
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn alternate_data_streams_cannot_alias_credential_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(directory.path()).await.unwrap();
+        for name in [".env::$DATA", ".env:stream", "ordinary.txt:stream"] {
+            assert!(workspace.resolve(name, true).await.is_err(), "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn credential_names_are_protected_regardless_of_case() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(directory.path()).await.unwrap();
+        for name in [".ENV", ".Env.local", ".GIT/config", ".SSH/id_rsa"] {
+            assert!(workspace.resolve(name, true).await.is_err(), "{name}");
+        }
+    }
 }

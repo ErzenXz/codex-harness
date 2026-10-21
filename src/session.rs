@@ -2,11 +2,28 @@ use crate::{config::Config, workspace::Workspace};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::VecDeque, path::PathBuf};
-use tokio::io::AsyncWriteExt;
+use std::{collections::VecDeque, io::Write, path::PathBuf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
 const MAX_SESSION_BYTES: u64 = 16 * 1024 * 1024;
+
+// Count encoded JSON without allocating a second copy of the active context.
+pub(crate) fn json_bytes(value: &(impl Serialize + ?Sized)) -> Result<usize> {
+    struct Counter(usize);
+    impl Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value)?;
+    Ok(counter.0)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Turn {
@@ -38,26 +55,33 @@ impl Session {
     }
 
     pub fn context(&mut self, budget: usize) -> Vec<Value> {
-        // Drop only whole completed turns; never orphan a function-call output.
-        let mut bytes = self.bytes();
-        while !self.turns.is_empty() && bytes > budget {
-            if let Some(turn) = self.turns.pop_front() {
-                bytes =
-                    bytes.saturating_sub(serde_json::to_vec(&turn).map_or(0, |bytes| bytes.len()));
-            }
-            self.dropped_turns += 1;
-        }
+        self.trim(budget);
         self.turns
             .iter()
             .flat_map(|t| t.items.iter().cloned())
             .collect()
     }
 
+    pub fn trim(&mut self, budget: usize) {
+        // Drop only whole completed turns; never orphan a function-call output.
+        let mut bytes = 0;
+        let mut keep = 0;
+        // Count the retained suffix once; older discarded history needs no serialization.
+        for turn in self.turns.iter().rev() {
+            let size = json_bytes(turn).unwrap_or(0);
+            if size > budget.saturating_sub(bytes) {
+                break;
+            }
+            bytes += size;
+            keep += 1;
+        }
+        let dropped = self.turns.len() - keep;
+        self.turns.drain(..dropped);
+        self.dropped_turns += dropped;
+    }
+
     pub fn bytes(&self) -> usize {
-        self.turns
-            .iter()
-            .map(|t| serde_json::to_vec(t).map_or(0, |v| v.len()))
-            .sum()
+        self.turns.iter().map(|t| json_bytes(t).unwrap_or(0)).sum()
     }
 }
 
@@ -112,7 +136,17 @@ impl Store {
             tokio::fs::metadata(&path).await?.len() <= MAX_SESSION_BYTES,
             "Session file too large"
         );
-        let session: Session = serde_json::from_slice(&tokio::fs::read(path).await?)?;
+        let mut bytes = Vec::new();
+        tokio::fs::File::open(path)
+            .await?
+            .take(MAX_SESSION_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .await?;
+        ensure!(
+            bytes.len() as u64 <= MAX_SESSION_BYTES,
+            "Session file too large"
+        );
+        let session: Session = serde_json::from_slice(&bytes)?;
         ensure!(
             session.version == 1 && session.id == id,
             "Invalid session format"
@@ -126,5 +160,57 @@ impl Store {
             "Invalid persisted mode"
         );
         Ok(session)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn counted_json_size_matches_encoding_with_escapes_and_unicode() {
+        let value = json!({"message":"世界\n\t\"\\", "items":[null,true,-123,0.25]});
+        assert_eq!(
+            json_bytes(&value).unwrap(),
+            serde_json::to_vec(&value).unwrap().len()
+        );
+        assert_eq!(
+            json_bytes(&value["items"]).unwrap(),
+            serde_json::to_vec(&value["items"]).unwrap().len()
+        );
+    }
+
+    #[test]
+    fn trim_evicts_complete_turns_and_keeps_exact_budget() {
+        let first = Turn {
+            items: vec![
+                json!({"type":"function_call", "call_id":"one"}),
+                json!({"type":"function_call_output", "call_id":"one", "output":"hello"}),
+            ],
+        };
+        let last = Turn {
+            items: vec![json!({"role":"user", "content":"keep me"})],
+        };
+        let budget = json_bytes(&last).unwrap();
+        let mut session = Session {
+            version: 1,
+            id: Uuid::new_v4(),
+            cwd: PathBuf::new(),
+            model: String::new(),
+            mode: "code".into(),
+            turns: VecDeque::from([first, last]),
+            dropped_turns: 0,
+        };
+        session.trim(budget);
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.dropped_turns, 1);
+        assert_eq!(session.bytes(), budget);
+        session.trim(budget);
+        assert_eq!(session.dropped_turns, 1);
+        assert_eq!(session.context(budget)[0]["content"], "keep me");
+        session.trim(0);
+        assert!(session.turns.is_empty());
+        assert_eq!(session.dropped_turns, 2);
     }
 }

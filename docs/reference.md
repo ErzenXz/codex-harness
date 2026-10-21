@@ -263,8 +263,10 @@ network, read the user's files, and run arbitrary programs. Shell environments a
 cleared and a small runtime allowlist forwarded, but `HOME` still locates user
 files. Run untrusted work in a container/VM with restricted credentials. Filesystem
 checks are defense in depth, not a race-proof capability sandbox. Unix shell task
-process groups are killed on cancellation/timeouts; Windows process-tree isolation
-is not implemented. Background jobs do not survive process restart.
+process groups are killed on cancellation/timeouts; Windows uses Job Objects to
+terminate contained descendants. Job assignment follows process creation, so a
+very fast child can spawn a descendant before assignment. Neither mechanism is
+a security sandbox. Background jobs do not survive process restart.
 Prompt cancellation stops that turn and its children, not independent jobs from
 earlier completed turns. Cancel retained jobs by task ID, unload their session,
 or shut down the process. SIGINT/SIGTERM trigger orderly Unix shutdown.
@@ -315,7 +317,7 @@ python3 tests/benchmark.py --agents 10
 ```
 
 It reports startup, throughput/latency against a simulated 50 ms loopback model,
-Linux process RSS/high-water mark, and end-to-end native search over 10,000 files.
+Linux process RSS/high-water mark or macOS sampled RSS, and end-to-end native search over 10,000 files.
 Small synthetic conversations do not predict memory use for full coding sessions.
 
 ### Bounded live validation (2026-10-19)

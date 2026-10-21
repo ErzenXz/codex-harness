@@ -33,12 +33,6 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let state = std::env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| ".".into()))
-                    .join(".local/state")
-            });
         Self {
             auth: "auto".into(),
             wire_api: "responses".into(),
@@ -47,7 +41,7 @@ impl Default for Config {
             base_url: "https://api.openai.com/v1".into(),
             reasoning_effort: None,
             prompt_cache_retention: None,
-            state_dir: state.join("codex-harness"),
+            state_dir: default_state_dir(),
             max_turn_steps: 80,
             max_subagent_depth: 2,
             max_subagents: 256,
@@ -190,5 +184,39 @@ impl Config {
             bail!("Unsupported reasoning_effort");
         }
         Ok(())
+    }
+}
+
+// Keep the established XDG layout on Unix; Windows has no HOME by default.
+fn default_state_dir() -> PathBuf {
+    #[cfg(windows)]
+    let state = std::env::var_os("LOCALAPPDATA")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .filter(|path| !path.is_empty())
+                .map(|home| PathBuf::from(home).join("AppData/Local"))
+        });
+    #[cfg(not(windows))]
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")));
+    state
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("codex-harness")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_state_path_is_absolute_and_valid() {
+        let config = Config::default();
+        assert!(config.state_dir.is_absolute());
+        config.validate().unwrap();
     }
 }

@@ -346,9 +346,9 @@ impl Server {
             Err(error) => return Err(error),
         };
         let user = json!({"role":"user","content":text});
-        let reserved = serde_json::to_vec(&user)?.len()
+        let reserved = crate::session::json_bytes(&user)?
             + instructions.len()
-            + serde_json::to_vec(&toolset.definitions)?.len()
+            + crate::session::json_bytes(&toolset.definitions)?
             + 512;
         ensure!(
             reserved <= self.config.context_bytes,
@@ -366,7 +366,7 @@ impl Server {
         let mut turn = items.split_off(start);
         repair_calls(&mut turn);
         session.turns.push_back(Turn { items: turn });
-        session.context(self.config.context_bytes);
+        session.trim(self.config.context_bytes);
         let saved = self.store.save(&session).await;
         *slot.cancel.lock().await = self.shutdown.child_token();
         saved?;

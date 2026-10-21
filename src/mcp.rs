@@ -392,19 +392,7 @@ impl Client {
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::null());
                 cmd.env_clear();
-                for key in [
-                    "PATH",
-                    "HOME",
-                    "LANG",
-                    "LC_ALL",
-                    "XDG_RUNTIME_DIR",
-                    "TMPDIR",
-                    "SYSTEMROOT",
-                ] {
-                    if let Some(value) = std::env::var_os(key) {
-                        cmd.env(key, value);
-                    }
-                }
+                crate::jobs::inherit_process_environment(&mut cmd);
                 for (name, value) in env {
                     cmd.env(name, value);
                 }
@@ -414,6 +402,7 @@ impl Client {
                     cmd.as_std_mut().process_group(0);
                 }
                 let mut child = cmd.spawn().context("Could not start MCP stdio server")?;
+                let group = crate::jobs::ProcessGroup::new(&mut child)?;
                 let stdin = child.stdin.take().context("Missing MCP stdin")?;
                 let stdout = child.stdout.take().context("Missing MCP stdout")?;
                 let writer = Arc::new(Mutex::new(stdin));
@@ -471,7 +460,7 @@ impl Client {
                 Transport::Stdio {
                     writer,
                     pending,
-                    group: crate::jobs::ProcessGroup(child.id()),
+                    group,
                     child,
                     reader,
                 }
