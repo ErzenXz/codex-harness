@@ -27,7 +27,7 @@ directly in your ACP client to eliminate launcher overhead on every platform.
 
 ```sh
 cargo build --release --locked
-HARNESS_BIN=target/release/codex-harness python3 tests/benchmark.py --agents 10
+HARNESS_BIN=target/release/piko python3 tests/benchmark.py --agents 10
 ```
 
 On Windows set `HARNESS_BIN` to the `.exe` path in your shell first. The benchmark
@@ -44,7 +44,7 @@ history; they do not cap total process RSS. Read the runtime limits in the
 
 ## Version 0.3.1 measurement (2026-10-21)
 
-The [six-target release verification](https://github.com/ErzenXz/codex-harness/actions/runs/39641540994)
+The [six-target release verification](https://github.com/ErzenXz/piko/actions/runs/39641540994)
 passed on native macOS/Linux/Windows runners, each on arm64 and x64. The public
 npm install matched the verified macOS arm64 artifact by SHA-256.
 
@@ -94,7 +94,7 @@ instead of treating small timing differences as guarantees.
 
 ## Platform and installation verification
 
-The [release verification workflow](https://github.com/ErzenXz/codex-harness/actions/runs/39605798717)
+The [release verification workflow](https://github.com/ErzenXz/piko/actions/runs/39605798717)
 passed on macOS, Linux and Windows, each on arm64 and x64. It runs Rust tests,
 ACP integration tests, launcher and installation checks, then validates native
 packages and standalone archives. Performance numbers above come from macOS;

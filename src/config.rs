@@ -67,7 +67,7 @@ impl Config {
         // Never load executable settings from the model-controlled working tree.
         let mut config: Self = match path {
             Some(path) => toml::from_str(&tokio::fs::read_to_string(path).await?)
-                .context("Invalid harness configuration")?,
+                .context("Invalid Piko configuration")?,
             None => Self::default(),
         };
         for (name, target) in [
@@ -78,7 +78,9 @@ impl Config {
                 *target = value;
             }
         }
-        if let Some(path) = std::env::var_os("CODEX_HARNESS_STATE_DIR") {
+        if let Some(path) = std::env::var_os("PIKO_STATE_DIR")
+            .or_else(|| std::env::var_os("CODEX_HARNESS_STATE_DIR"))
+        {
             config.state_dir = path.into();
         }
         config.validate()?;
@@ -214,15 +216,45 @@ fn default_state_dir() -> PathBuf {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")));
-    state
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("codex-harness")
+    state_directory(
+        state
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| PathBuf::from(".")),
+    )
+}
+
+// Reuse the established directory so a rename never strands credentials or sessions.
+// An explicitly configured state_dir or PIKO_STATE_DIR takes precedence in Config::load.
+fn state_directory(base: PathBuf) -> PathBuf {
+    let current = base.join("piko");
+    let legacy = base.join("codex-harness");
+    if !current.exists() && legacy.is_dir() {
+        legacy
+    } else {
+        current
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renamed_state_directory_preserves_existing_credentials_and_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let piko = root.path().join("piko");
+        let legacy = root.path().join("codex-harness");
+        assert_eq!(state_directory(root.path().into()), piko);
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::write(legacy.join("auth.json"), "existing credentials").unwrap();
+        assert_eq!(state_directory(root.path().into()), legacy);
+        std::fs::create_dir(&piko).unwrap();
+        assert_eq!(state_directory(root.path().into()), piko);
+        assert_eq!(
+            std::fs::read_to_string(legacy.join("auth.json")).unwrap(),
+            "existing credentials"
+        );
+    }
 
     #[test]
     fn configured_model_identifiers_have_byte_and_control_bounds() {

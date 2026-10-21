@@ -1,5 +1,8 @@
 # Releases
 
+Piko publishes the `@erzenx/piko` launcher and six `@erzenx/piko-*` native packages.
+The executable is `piko`.
+
 Development uses the pinned current pnpm in `package.json` and the Rust lockfile.
 There are no JavaScript development dependencies. `pnpm-workspace.yaml` enforces
 a one-day dependency age, strict build-script approval and no exotic transitive
@@ -44,7 +47,7 @@ stay in runner temporary directories; local validation should also use scratch.
 First publication needs authenticated maintainer access to create each package.
 Use the normal npm browser/passkey authorization when prompted. Never commit an
 npm token. After bootstrapping, configure each of the seven packages to trust
-`ErzenXz/codex-harness`, workflow `release.yml`, for npm trusted publishing.
+`ErzenXz/piko`, workflow `release.yml`, for npm trusted publishing.
 Subsequent releases use GitHub OIDC with provenance and no stored publishing token.
 The `npm trust` account-management command may be needed to configure this;
 installation, packing and publishing use pnpm.

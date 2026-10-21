@@ -1,26 +1,46 @@
 {
-  "name": "codex-harness",
-  "version": "0.3.1",
-  "description": "Small native Rust coding-agent backend: ACP, streaming, subagents, MCP and ChatGPT sign-in",
+  "name": "@erzenx/piko",
+  "version": "0.4.0",
+  "description": "A tiny, powerful native coding agent: ACP, streaming, subagents, MCP and ChatGPT sign-in",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ErzenXz/codex-harness.git",
+    "url": "git+https://github.com/ErzenXz/piko.git",
     "directory": "npm/cli"
   },
-  "homepage": "https://github.com/ErzenXz/codex-harness#readme",
-  "bugs": "https://github.com/ErzenXz/codex-harness/issues",
-  "keywords": ["agent", "acp", "codex", "mcp", "rust"],
-  "bin": {"codex-harness": "bin/codex-harness.cjs"},
-  "files": ["bin", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"],
-  "engines": {"node": ">=22.15.0"},
-  "publishConfig": {"access": "public", "registry": "https://registry.npmjs.org/"},
+  "homepage": "https://github.com/ErzenXz/piko#readme",
+  "bugs": "https://github.com/ErzenXz/piko/issues",
+  "keywords": [
+    "piko",
+    "agent",
+    "acp",
+    "coding-agent",
+    "mcp",
+    "rust"
+  ],
+  "bin": {
+    "piko": "bin/piko.cjs",
+    "codex-harness": "bin/piko.cjs"
+  },
+  "files": [
+    "bin",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "optionalDependencies": {
-    "@erzenx/codex-harness-darwin-arm64": "0.3.1",
-    "@erzenx/codex-harness-darwin-x64": "0.3.1",
-    "@erzenx/codex-harness-linux-arm64": "0.3.1",
-    "@erzenx/codex-harness-linux-x64": "0.3.1",
-    "@erzenx/codex-harness-win32-arm64": "0.3.1",
-    "@erzenx/codex-harness-win32-x64": "0.3.1"
+    "@erzenx/piko-darwin-arm64": "0.4.0",
+    "@erzenx/piko-darwin-x64": "0.4.0",
+    "@erzenx/piko-linux-arm64": "0.4.0",
+    "@erzenx/piko-linux-x64": "0.4.0",
+    "@erzenx/piko-win32-arm64": "0.4.0",
+    "@erzenx/piko-win32-x64": "0.4.0"
   }
 }

@@ -23,7 +23,7 @@ for target in targets:
 groups = {}
 packages = []
 for package in sorted(metadata["packages"], key=lambda p: (p["name"], p["version"])):
-    if package["name"] == "codex-harness" or package["id"] not in selected:
+    if package["name"] == "piko" or package["id"] not in selected:
         continue
     root = Path(package["manifest_path"]).parent
     files = [p for p in root.iterdir() if p.is_file() and p.name.upper().startswith(("LICENSE", "LICENCE", "COPYING", "NOTICE", "UNLICENSE"))]

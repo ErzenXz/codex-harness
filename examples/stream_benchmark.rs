@@ -1,5 +1,5 @@
 //! Local allocation hot-path benchmark; no network, credentials or model calls.
-use codex_harness::provider::ChatStream;
+use piko::provider::ChatStream;
 use serde_json::json;
 use std::{hint::black_box, time::Instant};
 

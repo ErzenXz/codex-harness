@@ -92,7 +92,10 @@ impl Workspace {
             if name == ".git"
                 || name == ".env"
                 || name.starts_with(".env.")
-                || matches!(name.as_ref(), ".ssh" | ".aws" | ".gnupg" | ".codex-harness")
+                || matches!(
+                    name.as_ref(),
+                    ".ssh" | ".aws" | ".gnupg" | ".codex-harness" | ".piko"
+                )
             {
                 bail!("Protected path; use a manually approved shell command if necessary");
             }
@@ -209,7 +212,14 @@ mod tests {
     async fn credential_names_are_protected_regardless_of_case() {
         let directory = tempfile::tempdir().unwrap();
         let workspace = Workspace::new(directory.path()).await.unwrap();
-        for name in [".ENV", ".Env.local", ".GIT/config", ".SSH/id_rsa"] {
+        for name in [
+            ".ENV",
+            ".Env.local",
+            ".GIT/config",
+            ".SSH/id_rsa",
+            ".PIKO/auth.json",
+            ".CODEX-HARNESS/auth.json",
+        ] {
             assert!(workspace.resolve(name, true).await.is_err(), "{name}");
         }
     }

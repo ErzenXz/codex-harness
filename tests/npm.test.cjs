@@ -9,16 +9,16 @@ const { stage, platforms } = require('../scripts/package.cjs');
 const cliManifest = require('../npm/cli/package.json');
 
 function fixture(t, native = false) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'harness package 世界 '));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'piko package 世界 '));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cli = path.join(root, 'cli');
   stage({ out: cli, platform: 'cli' });
   const platform = `${process.platform}-${process.arch}`;
-  const binary = native ? path.resolve(process.env.HARNESS_BIN || `target/debug/codex-harness${process.platform === 'win32' ? '.exe' : ''}`) : path.join(root, 'fixture');
+  const binary = native ? path.resolve(process.env.PIKO_BIN || process.env.HARNESS_BIN || `target/debug/piko${process.platform === 'win32' ? '.exe' : ''}`) : path.join(root, 'fixture');
   if (!native) fs.writeFileSync(binary, 'fixture');
-  const pkg = path.join(cli, 'node_modules', '@erzenx', `codex-harness-${platform}`);
+  const pkg = path.join(cli, 'node_modules', '@erzenx', `piko-${platform}`);
   stage({ out: pkg, platform, binary });
-  return { root, cli, pkg, launcher: path.join(cli, 'bin', 'codex-harness.cjs') };
+  return { root, cli, pkg, launcher: path.join(cli, 'bin', 'piko.cjs') };
 }
 
 test('all six platform manifests are script-free and exactly pinned', (t) => {
@@ -35,6 +35,9 @@ test('all six platform manifests are script-free and exactly pinned', (t) => {
     assert.deepEqual(fs.readdirSync(out).sort(), ['LICENSE', 'README.md', 'THIRD_PARTY_NOTICES.md', 'bin', 'package.json']);
   }
   assert.equal(cliManifest.scripts, undefined);
+  assert.equal(cliManifest.name, '@erzenx/piko');
+  assert.deepEqual(cliManifest.bin, { piko: 'bin/piko.cjs', 'codex-harness': 'bin/piko.cjs' });
+  assert.deepEqual(fs.readdirSync(path.join(root, 'cli', 'bin')), ['piko.cjs']);
 });
 
 test('staging refuses source-tree output and overwrites', (t) => {
@@ -66,10 +69,10 @@ test('real launcher preserves version, exit code, Unicode paths and quiet ACP st
   let result = launch(['--version']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, '');
-  assert.equal(result.stdout.trim(), `codex-harness ${cliManifest.version}`);
+  assert.equal(result.stdout.trim(), `piko ${cliManifest.version}`);
   result = launch(['--print-binary-path']);
   assert.equal(result.status, 0);
-  assert.equal(fs.realpathSync(result.stdout.trim()), fs.realpathSync(path.join(pkg, 'bin', `codex-harness${process.platform === 'win32' ? '.exe' : ''}`)));
+  assert.equal(fs.realpathSync(result.stdout.trim()), fs.realpathSync(path.join(pkg, 'bin', `piko${process.platform === 'win32' ? '.exe' : ''}`)));
   const config = path.join(root, 'config 世界.toml');
   fs.writeFileSync(config, `auth = "none"\nstate_dir = ${JSON.stringify(path.join(root, 'state'))}\n`);
   const input = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1 } }) + '\n';

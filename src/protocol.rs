@@ -181,9 +181,9 @@ impl Server {
             );
             self.initialized.store(true, Ordering::Release);
             return Ok(
-                json!({"protocolVersion":1,"agentInfo":{"name":"codex-harness","version":env!("CARGO_PKG_VERSION"),"title":"Codex Harness"},
+                json!({"protocolVersion":1,"agentInfo":{"name":"piko","version":env!("CARGO_PKG_VERSION"),"title":"Piko"},
                 "agentCapabilities":{"loadSession":true,"promptCapabilities":{},"mcpCapabilities":{"http":true,"sse":false},"_meta":{"harness":{"tasks":true,"boundedContext":true,"computerUse":self.config.computer_use}}},
-                "authMethods":[{"id":"chatgpt","name":"ChatGPT subscription","description":"Run codex-harness login before starting the agent"},{"id":"api_key","name":"Provider API key","description":"Set the configured api_key_env environment variable"}]}),
+                "authMethods":[{"id":"chatgpt","name":"ChatGPT subscription","description":"Run piko login before starting the agent"},{"id":"api_key","name":"Provider API key","description":"Set the configured api_key_env environment variable"}]}),
             );
         }
         ensure!(

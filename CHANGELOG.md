@@ -1,3 +1,12 @@
+# 0.4.0
+
+- Rename Codex Harness to Piko. Install `@erzenx/piko` from npm and run `piko`.
+- Rename all six native packages and standalone downloads to Piko; keep the
+  `codex-harness` command alias for existing editor configurations.
+- Preserve existing sign-in and sessions by reusing an existing legacy state
+  directory. `PIKO_STATE_DIR` takes priority over `CODEX_HARNESS_STATE_DIR`.
+- Keep ACP extension metadata compatible with existing model/reasoning pickers.
+
 # 0.3.1
 
 - Discover available text models using your existing ChatGPT login or configured

@@ -7,13 +7,13 @@ import tarfile
 import zipfile
 
 archive, native, platform = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
-binary = "codex-harness.exe" if platform.startswith("win32-") else "codex-harness"
+binary = "piko.exe" if platform.startswith("win32-") else "piko"
 expected = {binary, "LICENSE", "THIRD_PARTY_NOTICES.md"}
 limit = 32 * 1024 * 1024
 
 with tarfile.open(native, "r:gz") as package:
     manifest = json.load(package.extractfile("package/package.json"))
-    if manifest["name"] != "@erzenx/codex-harness-" + platform:
+    if manifest["name"] != "@erzenx/piko-" + platform:
         raise SystemExit("Native package platform mismatch")
     reference = {}
     for name in expected:

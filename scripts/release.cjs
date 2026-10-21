@@ -15,10 +15,10 @@ if (!dir || !path.isAbsolute(dir) || !['validate', 'publish', 'github'].includes
 const tag = `v${cli.version}`;
 if ((process.env.RELEASE_REF || process.env.GITHUB_REF_NAME) !== tag) throw new Error(`Release must run on tag ${tag}`);
 const nativeFile = (platform) => path.join(dir, `native-${platform}.tgz`);
-const archiveFile = (platform) => path.join(dir, `codex-harness-${cli.version}-${platform}.${platform.startsWith('win32') ? 'zip' : 'tar.gz'}`);
+const archiveFile = (platform) => path.join(dir, `piko-${cli.version}-${platform}.${platform.startsWith('win32') ? 'zip' : 'tar.gz'}`);
 function preflight() {
   const expected = platforms.flatMap((platform) => [nativeFile(platform), archiveFile(platform)]).map((file) => path.basename(file));
-  const launcher = `codex-harness-${cli.version}.tgz`;
+  const launcher = `erzenx-piko-${cli.version}.tgz`;
   const actual = fs.readdirSync(dir).filter((name) => /\.(tgz|tar\.gz|zip)$/.test(name) && name !== launcher);
   if (actual.length !== expected.length || actual.some((name) => !expected.includes(name))) throw new Error('Expected exactly six native npm packages and their six standalone archives');
   for (const platform of platforms) {
@@ -91,7 +91,7 @@ async function recoverPublished(manifest, file, platform) {
   }
   const bytes = Buffer.concat(chunks);
   if (!integrityMatches(bytes, manifest.dist.integrity)) throw new Error(`Registry tarball integrity mismatch: ${manifest.name}`);
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-registry-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'piko-registry-'));
   try {
     const candidate = path.join(temp, 'package.tgz');
     fs.writeFileSync(candidate, bytes);
@@ -106,16 +106,16 @@ function checksum(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 function githubRelease() {
-  const tarball = path.join(dir, `codex-harness-${cli.version}.tgz`);
+  const tarball = path.join(dir, `erzenx-piko-${cli.version}.tgz`);
   run('python3', ['scripts/verify-package.py', tarball, 'cli']);
   const files = [...platforms.flatMap((platform) => [nativeFile(platform), archiveFile(platform)]), tarball].sort();
   const sumsFile = path.join(dir, 'SHA256SUMS');
   const writeSums = () => fs.writeFileSync(sumsFile, files.map((file) => `${checksum(file)}  ${path.basename(file)}\n`).join(''));
-  const existing = spawnSync('gh', ['api', `repos/ErzenXz/codex-harness/releases/tags/${tag}`], { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+  const existing = spawnSync('gh', ['api', `repos/ErzenXz/piko/releases/tags/${tag}`], { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
   if (existing.status !== 0) {
     if (!/HTTP 404/.test(existing.stderr || '')) throw new Error(`Cannot inspect GitHub release: ${existing.stderr}`);
     writeSums();
-    run('gh', ['release', 'create', tag, ...files, sumsFile, '--verify-tag', '--title', `Codex Harness ${cli.version}`, '--notes-file', 'CHANGELOG.md']);
+    run('gh', ['release', 'create', tag, ...files, sumsFile, '--verify-tag', '--title', `Piko ${cli.version}`, '--notes-file', 'CHANGELOG.md']);
     return;
   }
   const release = JSON.parse(existing.stdout);
@@ -129,7 +129,7 @@ function githubRelease() {
     assets.set(asset.name, asset);
   }
   function readAsset(asset) {
-    const data = spawnSync('gh', ['api', `repos/ErzenXz/codex-harness/releases/assets/${asset.id}`, '-H', 'Accept: application/octet-stream', '--allow-escape-sequences'], { maxBuffer: 40 * 1024 * 1024 });
+    const data = spawnSync('gh', ['api', `repos/ErzenXz/piko/releases/assets/${asset.id}`, '-H', 'Accept: application/octet-stream', '--allow-escape-sequences'], { maxBuffer: 40 * 1024 * 1024 });
     if (data.status !== 0 || data.stdout.length !== asset.size) throw new Error(`Cannot verify GitHub asset: ${asset.name}`);
     const digest = `sha256:${crypto.createHash('sha256').update(data.stdout).digest('hex')}`;
     if (asset.digest && digest !== asset.digest) throw new Error(`GitHub asset download integrity mismatch: ${asset.name}`);
@@ -142,7 +142,7 @@ function githubRelease() {
     const asset = assets.get(path.basename(file));
     if (!asset || asset.digest === `sha256:${checksum(file)}`) continue;
     const data = readAsset(asset);
-    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-github-'));
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'piko-github-'));
     try {
       const candidate = path.join(temp, path.basename(file));
       fs.writeFileSync(candidate, data.bytes);
@@ -173,14 +173,14 @@ async function main() {
     // Resolve all immutable existing packages before writing anything to npm.
     const manifests = new Map();
     for (const platform of platforms) {
-      const manifest = await published(`@erzenx/codex-harness-${platform}`);
+      const manifest = await published(`@erzenx/piko-${platform}`);
       manifests.set(platform, manifest);
       if (manifest) await recoverPublished(manifest, nativeFile(platform), platform);
     }
     // Rebuilt standalone binaries must match any already-published native binary.
     preflight();
     const out = path.join(process.env.RUNNER_TEMP || os.tmpdir(), `cli-package-${crypto.randomUUID()}`);
-    const tarball = path.join(dir, `codex-harness-${cli.version}.tgz`);
+    const tarball = path.join(dir, `erzenx-piko-${cli.version}.tgz`);
     try {
       stage({ out, platform: 'cli' });
       run('pnpm', ['--dir', out, 'pack', '--out', tarball]);
@@ -195,17 +195,17 @@ async function main() {
     }
     // Publishing is attempted once per package. Metadata propagation can lag the
     // successful write; wait for every native before exposing the launcher.
-    await Promise.all(platforms.map((platform) => waitForPublished(`@erzenx/codex-harness-${platform}`, nativeFile(platform))));
+    await Promise.all(platforms.map((platform) => waitForPublished(`@erzenx/piko-${platform}`, nativeFile(platform))));
     if (!rootManifest) run('pnpm', ['publish', tarball, '--access', 'public', '--provenance', '--ignore-scripts', '--no-git-checks']);
     await waitForPublished(cli.name, tarball);
   } else {
     // An independently resumed GitHub step must use the actual npm bytes.
     for (const platform of platforms) {
-      const manifest = await published(`@erzenx/codex-harness-${platform}`);
+      const manifest = await published(`@erzenx/piko-${platform}`);
       if (!manifest) throw new Error(`Native package not published: ${platform}`);
       await recoverPublished(manifest, nativeFile(platform), platform);
     }
-    const tarball = path.join(dir, `codex-harness-${cli.version}.tgz`);
+    const tarball = path.join(dir, `erzenx-piko-${cli.version}.tgz`);
     const manifest = await published(cli.name);
     if (!manifest) throw new Error('Launcher package not published');
     await recoverPublished(manifest, tarball, 'cli');

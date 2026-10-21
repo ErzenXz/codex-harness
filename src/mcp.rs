@@ -484,7 +484,7 @@ impl Client {
             has_tools: false,
             alive,
         };
-        let result = client.request("initialize",json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"codex-harness","version":env!("CARGO_PKG_VERSION")}}),cancel).await?;
+        let result = client.request("initialize",json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"piko","version":env!("CARGO_PKG_VERSION")}}),cancel).await?;
         let version = result["protocolVersion"]
             .as_str()
             .context("MCP server omitted protocolVersion")?;

@@ -36,7 +36,7 @@ jobs:
       run:
         shell: bash
     env:
-      HARNESS_BIN: target/${{ matrix.target }}/release/codex-harness${{ startsWith(matrix.platform, 'win32') && '.exe' || '' }}
+      PIKO_BIN: target/${{ matrix.target }}/release/piko${{ startsWith(matrix.platform, 'win32') && '.exe' || '' }}
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
     steps:
@@ -63,12 +63,12 @@ jobs:
       - run: pnpm test:install
       - name: Stage and pack native npm package
         run: |
-          node scripts/package.cjs --platform '${{ matrix.platform }}' --binary "$HARNESS_BIN" --out "$RUNNER_TEMP/native-package"
+          node scripts/package.cjs --platform '${{ matrix.platform }}' --binary "$PIKO_BIN" --out "$RUNNER_TEMP/native-package"
           mkdir -p "$RUNNER_TEMP/artifacts"
           pnpm --dir "$RUNNER_TEMP/native-package" pack --out "$RUNNER_TEMP/artifacts/native-${{ matrix.platform }}.tgz"
-          python scripts/archive.py --binary "$HARNESS_BIN" --platform '${{ matrix.platform }}' --out "$RUNNER_TEMP/artifacts"
+          python scripts/archive.py --binary "$PIKO_BIN" --platform '${{ matrix.platform }}' --out "$RUNNER_TEMP/artifacts"
           python scripts/verify-package.py "$RUNNER_TEMP/artifacts/native-${{ matrix.platform }}.tgz" '${{ matrix.platform }}'
-          python scripts/verify-archive.py "$RUNNER_TEMP/artifacts"/codex-harness-*-"${{ matrix.platform }}".${{ startsWith(matrix.platform, 'win32') && 'zip' || 'tar.gz' }} "$RUNNER_TEMP/artifacts/native-${{ matrix.platform }}.tgz" '${{ matrix.platform }}'
+          python scripts/verify-archive.py "$RUNNER_TEMP/artifacts"/piko-*-"${{ matrix.platform }}".${{ startsWith(matrix.platform, 'win32') && 'zip' || 'tar.gz' }} "$RUNNER_TEMP/artifacts/native-${{ matrix.platform }}.tgz" '${{ matrix.platform }}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.platform }}

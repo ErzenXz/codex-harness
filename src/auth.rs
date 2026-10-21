@@ -84,7 +84,7 @@ impl Auth {
         if !chatgpt {
             ensure!(
                 mode == "none" || key.is_some(),
-                "Set the configured api_key_env environment variable, or run codex-harness login"
+                "Set the configured api_key_env environment variable, or run piko login"
             );
             return Ok(Credentials {
                 bearer: if mode == "none" { None } else { key },
@@ -108,7 +108,7 @@ impl Auth {
             use tokio::io::AsyncReadExt;
             let file = tokio::fs::File::open(self.path())
                 .await
-                .context("Run codex-harness login to sign in with your ChatGPT subscription")?;
+                .context("Run piko login to sign in with your ChatGPT subscription")?;
             let mut bytes = Vec::new();
             file.take(65536).read_to_end(&mut bytes).await?;
             ensure!(bytes.len() < 65536, "Invalid credential file size");
@@ -169,7 +169,7 @@ impl Auth {
                 .context("OAuth refresh failed")?;
             ensure!(
                 response.status().is_success(),
-                "ChatGPT token refresh rejected; run codex-harness login again"
+                "ChatGPT token refresh rejected; run piko login again"
             );
             let mut bytes = Vec::new();
             while let Some(chunk) = response

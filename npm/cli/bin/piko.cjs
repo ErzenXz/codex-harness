@@ -6,17 +6,17 @@ const platform = `${process.platform}-${process.arch}`;
 const supported = new Set(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
 
 function fail(message) {
-  console.error(`codex-harness: ${message}`);
+  console.error(`piko: ${message}`);
   process.exit(1);
 }
 
-if (!supported.has(platform)) fail(`Unsupported platform ${platform}. Build from source: https://github.com/ErzenXz/codex-harness`);
-const name = `@erzenx/codex-harness-${platform}`;
+if (!supported.has(platform)) fail(`Unsupported platform ${platform}. Build from source: https://github.com/ErzenXz/piko`);
+const name = `@erzenx/piko-${platform}`;
 let binary;
 try {
   const manifest = require.resolve(`${name}/package.json`);
-  if (require(manifest).version !== version) fail(`Native package version mismatch. Reinstall codex-harness@${version}.`);
-  binary = require('node:path').join(require('node:path').dirname(manifest), 'bin', `codex-harness${process.platform === 'win32' ? '.exe' : ''}`);
+  if (require(manifest).version !== version) fail(`Native package version mismatch. Reinstall @erzenx/piko@${version}.`);
+  binary = require('node:path').join(require('node:path').dirname(manifest), 'bin', `piko${process.platform === 'win32' ? '.exe' : ''}`);
   require('node:fs').accessSync(binary, require('node:fs').constants.X_OK);
 } catch {
   fail(`Missing ${name}@${version}. Reinstall with optional dependencies enabled (no --no-optional/--omit=optional). No binary is downloaded at runtime.`);

@@ -1,6 +1,6 @@
 # Technical reference
 
-Looking to install and start the harness? Use the [quick start](../README.md).
+Looking to install and start Piko? Use the [quick start](../README.md).
 This page covers provider settings, runtime limits, MCP, computer use, protocol,
 security, development and benchmark details.
 
@@ -14,29 +14,31 @@ workload dependent. Benchmarks must separate local overhead from model inference
 
 ## Installation and maintenance
 
-Install the published command with `pnpm add -g codex-harness`, then run
-`codex-harness login`. The launcher requires Node.js 22.15+; the native executable
+Install the published command with `pnpm add -g @erzenx/piko`, then run
+`piko login`. The launcher requires Node.js 22.15+; the native executable
 itself does not require Node.js. Only your OS/CPU package is installed. Keep
 optional dependencies enabled; reinstall if they were omitted. There is no
 fallback network download. `ripgrep` is recommended for faster search; a bounded
 Rust fallback is built in.
 
 For a standalone installation, download your platform's archive from
-[Releases](https://github.com/ErzenXz/codex-harness/releases), verify its SHA-256
+[Releases](https://github.com/ErzenXz/piko/releases), verify its SHA-256
 against `SHA256SUMS`, then put the executable on PATH.
 
 ```sh
-pnpm add -g codex-harness@latest
-codex-harness logout
-pnpm remove -g codex-harness
+pnpm add -g @erzenx/piko@latest
+piko logout
+pnpm remove -g @erzenx/piko
 ```
 
 Restart your ACP agent after updating. If you launch the native path printed by
-`codex-harness --print-binary-path`, refresh that path after updating. Logout
+`piko --print-binary-path`, refresh that path after updating. Logout
 removes local login credentials; retained conversations remain in the state
-directory. On Unix state defaults to `$XDG_STATE_HOME/codex-harness` or
-`~/.local/state/codex-harness`; on Windows it is `%LOCALAPPDATA%\codex-harness`.
-`CODEX_HARNESS_STATE_DIR` overrides it.
+directory. On Unix state defaults to `$XDG_STATE_HOME/piko` or `~/.local/state/piko`; on
+Windows it is `%LOCALAPPDATA%\piko`. Existing `codex-harness` state directories
+are reused automatically, keeping your login and sessions without moving files.
+`PIKO_STATE_DIR` overrides the location; `CODEX_HARNESS_STATE_DIR` remains supported
+for existing launchers and has lower precedence.
 
 To choose reasoning, concurrency or another provider, copy a
 [starter configuration](../examples/) to a trusted user directory and pass
@@ -46,7 +48,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.3.0 --locked
+cargo install --git https://github.com/ErzenXz/piko --tag v0.4.0 --locked
 ```
 
 ## ACP launch contract
@@ -55,7 +57,7 @@ See the [quick start](../README.md) for installation and sign-in. An ACP launche
 uses the installed binary and an explicitly chosen, trusted user config:
 
 ```json
-{"command":"/absolute/path/to/codex-harness","args":["--acp","--config","/absolute/path/to/config.toml"],"env":{}}
+{"command":"/absolute/path/to/piko","args":["--acp","--config","/absolute/path/to/config.toml"],"env":{}}
 ```
 
 The client must keep stdin open, continuously read stdout, negotiate protocol
@@ -75,7 +77,7 @@ quotas. With GPT-6 Luna function calling over Chat Completions, set
 
 ### ChatGPT subscription
 
-`codex-harness login` uses the Codex device-code flow. Enable device-code login in
+`piko login` uses the Codex device-code flow. Enable device-code login in
 your ChatGPT security settings if necessary, open the displayed OpenAI URL, and
 enter the code. An eligible plan and model access are required. Subscription
 limits still apply; hundreds of local agents do not bypass them.
@@ -102,7 +104,7 @@ concurrency limits do not impose a total-token or subscription-usage budget.
 ### OpenAI API key
 
 Skip device login. Create a config outside your project (for example,
-`~/.config/codex-harness/openai.toml`):
+`~/.config/piko/openai.toml`):
 
 ```toml
 auth = "api_key"

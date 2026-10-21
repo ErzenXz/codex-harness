@@ -1,4 +1,4 @@
-use codex_harness::{
+use piko::{
     auth::claims,
     config::Config,
     jobs::Jobs,
@@ -53,7 +53,7 @@ fn config_rejects_insecure_urls_and_invalid_limits() {
 
 #[test]
 fn mcp_config_validation_and_pool_capacity_are_bounded() {
-    use codex_harness::mcp::{Pool, Servers};
+    use piko::mcp::{Pool, Servers};
     use std::{path::Path, sync::Arc};
     let pool = Arc::new(Pool::default());
     for entries in [
@@ -100,7 +100,7 @@ fn mcp_config_validation_and_pool_capacity_are_bounded() {
 
 #[test]
 fn computer_viewport_preserves_aspect_and_never_upscales() {
-    use codex_harness::computer::viewport;
+    use piko::computer::viewport;
     assert_eq!(viewport(3200, 2400), (1280, 960));
     assert_eq!(viewport(1920, 1080), (1280, 720));
     assert_eq!(viewport(1080, 1920), (540, 960));
@@ -110,7 +110,7 @@ fn computer_viewport_preserves_aspect_and_never_upscales() {
 #[tokio::test]
 #[cfg(unix)]
 async fn computer_driver_scales_coordinates_and_rejects_unsafe_arguments() {
-    use codex_harness::computer::Desktop;
+    use piko::computer::Desktop;
     use std::os::unix::fs::PermissionsExt;
     let temp = tempdir().unwrap();
     let program = temp.path().join("pointer");
@@ -162,7 +162,7 @@ async fn computer_driver_scales_coordinates_and_rejects_unsafe_arguments() {
 #[test]
 fn multimodal_outputs_bound_images_and_preserve_text_and_structure() {
     use base64::{Engine, engine::general_purpose::STANDARD};
-    use codex_harness::multimodal::{image_dimensions, normalize};
+    use piko::multimodal::{image_dimensions, normalize};
     let data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6mNQAAAAASUVORK5CYII=";
     assert_eq!(
         image_dimensions("image/png", &STANDARD.decode(data).unwrap()),
@@ -205,7 +205,7 @@ fn multimodal_outputs_bound_images_and_preserve_text_and_structure() {
 
 #[test]
 fn chat_images_follow_all_tool_results_and_old_images_can_be_evicted() {
-    use codex_harness::multimodal::{acp_content, trim_images};
+    use piko::multimodal::{acp_content, trim_images};
     let image = json!({"type":"input_image","image_url":"data:image/png;base64,example"});
     let mut items = vec![
         json!({"type":"function_call","call_id":"c1","name":"computer_use","arguments":"{}"}),

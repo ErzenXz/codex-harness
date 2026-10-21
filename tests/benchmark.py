@@ -10,7 +10,7 @@ import statistics
 import subprocess
 import time
 
-os.environ.setdefault("HARNESS_BIN", "target/release/codex-harness")
+os.environ.setdefault("PIKO_BIN", os.environ.get("HARNESS_BIN", "target/release/piko"))
 from stdio import BINARY, Harness, call, final, response
 
 

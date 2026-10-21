@@ -1,15 +1,15 @@
-use codex_harness::{config::Config, protocol};
+use piko::{config::Config, protocol};
 
 fn main() {
     // Handle metadata without constructing an async runtime or touching user state.
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--version"] {
-        println!("codex-harness {}", env!("CARGO_PKG_VERSION"));
+        println!("piko {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     if args == ["--help"] || args == ["-h"] {
         println!(
-            "codex-harness [--acp] [--config PATH]\ncodex-harness login|logout [--config PATH]\n\nSilent ACP agent on stdin/stdout. ChatGPT subscription or provider API key.\nNo arguments starts ACP. Only explicit login/help/version print human text."
+            "piko [--acp] [--config PATH]\npiko login|logout [--config PATH]\n\nSilent ACP agent on stdin/stdout. ChatGPT subscription or provider API key.\nNo arguments starts ACP. Only explicit login/help/version print human text."
         );
         return;
     }
@@ -47,15 +47,15 @@ async fn run(args: Vec<String>) {
     let result = async {
         let config = Config::load(path.as_deref()).await?;
         match action {
-            "login" => codex_harness::auth::Auth::login(&config).await,
-            "logout" => codex_harness::auth::Auth::logout(&config).await,
+            "login" => piko::auth::Auth::login(&config).await,
+            "logout" => piko::auth::Auth::logout(&config).await,
             _ => protocol::serve(config).await,
         }
     }
     .await;
     if let Err(error) = result {
         // Fatal startup/transport failures are the only unsolicited diagnostics.
-        eprintln!("codex-harness: {error:#}");
+        eprintln!("piko: {error:#}");
         std::process::exit(1);
     }
 }

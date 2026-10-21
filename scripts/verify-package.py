@@ -19,16 +19,17 @@ with tarfile.open(a.tarball, "r:gz") as tar:
         if entry.size > 32 * 1024 * 1024:
             raise SystemExit("Unexpectedly large payload")
         files[entry.name] = entry
-    executable = "bin/codex-harness.cjs" if a.platform == "cli" else "bin/codex-harness" + (".exe" if a.platform.startswith("win32") else "")
+    executable = "bin/piko.cjs" if a.platform == "cli" else "bin/piko" + (".exe" if a.platform.startswith("win32") else "")
     expected = {"package/" + f for f in ["package.json", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", executable]}
     if set(files) != expected:
         raise SystemExit(f"Unexpected files: {set(files) ^ expected}")
     manifest = json.load(tar.extractfile("package/package.json"))
-    name = cli["name"] if a.platform == "cli" else "@erzenx/codex-harness-" + a.platform
+    name = cli["name"] if a.platform == "cli" else "@erzenx/piko-" + a.platform
     assert manifest["name"] == name and manifest["version"] == cli["version"], "Package name/version mismatch"
     assert not manifest.get("scripts") and not manifest.get("dependencies"), "Unexpected runtime scripts/dependencies"
     if a.platform == "cli":
         assert manifest["optionalDependencies"] == cli["optionalDependencies"]
+        assert manifest["bin"] == cli["bin"], "CLI command aliases mismatch"
     else:
         os, cpu = a.platform.split("-")
         assert manifest["os"] == [os] and manifest["cpu"] == [cpu]

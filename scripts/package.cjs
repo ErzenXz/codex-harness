@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const cli = require('../npm/cli/package.json');
-const platforms = Object.keys(cli.optionalDependencies).map((name) => name.replace('@erzenx/codex-harness-', ''));
+const platforms = Object.keys(cli.optionalDependencies).map((name) => name.replace('@erzenx/piko-', ''));
 function stage({ out, platform, binary }) {
   if (!out || !path.isAbsolute(out)) throw new Error('--out must be an absolute scratch directory');
   out = path.resolve(out);
@@ -20,8 +20,8 @@ function stage({ out, platform, binary }) {
     if (!binary || !fs.statSync(binary).isFile()) throw new Error('Missing native binary');
     const [os, cpu] = platform.split('-');
     manifest = {
-      name: `@erzenx/codex-harness-${platform}`, version: cli.version,
-      description: `Native codex-harness binary for ${platform}`, license: cli.license,
+      name: `@erzenx/piko-${platform}`, version: cli.version,
+      description: `Native piko binary for ${platform}`, license: cli.license,
       repository: cli.repository, os: [os], cpu: [cpu],
       files: ['bin', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md'],
       publishConfig: cli.publishConfig,
@@ -31,14 +31,14 @@ function stage({ out, platform, binary }) {
   fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
   for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(root, name), path.join(out, name));
   if (platform === 'cli') {
-    fs.writeFileSync(path.join(out, 'bin/codex-harness.cjs'), fs.readFileSync(path.join(root, 'npm/cli/bin/codex-harness.cjs'), 'utf8').replace(/\r\n/g, '\n'));
-    fs.chmodSync(path.join(out, 'bin/codex-harness.cjs'), 0o755);
+    fs.writeFileSync(path.join(out, 'bin/piko.cjs'), fs.readFileSync(path.join(root, 'npm/cli/bin/piko.cjs'), 'utf8').replace(/\r\n/g, '\n'));
+    fs.chmodSync(path.join(out, 'bin/piko.cjs'), 0o755);
     fs.copyFileSync(path.join(root, 'README.md'), path.join(out, 'README.md'));
   } else {
-    const target = path.join(out, 'bin', `codex-harness${platform.startsWith('win32') ? '.exe' : ''}`);
+    const target = path.join(out, 'bin', `piko${platform.startsWith('win32') ? '.exe' : ''}`);
     fs.copyFileSync(binary, target);
     fs.chmodSync(target, 0o755);
-    fs.writeFileSync(path.join(out, 'README.md'), `# ${manifest.name}\n\nPlatform binary for [codex-harness](https://www.npmjs.com/package/codex-harness). Install the main package instead. Linux binaries use static musl; no glibc dependency.\n`);
+    fs.writeFileSync(path.join(out, 'README.md'), `# ${manifest.name}\n\nPlatform binary for [Piko](https://www.npmjs.com/package/@erzenx/piko). Install the main package instead. Linux binaries use static musl; no glibc dependency.\n`);
   }
   return manifest;
 }

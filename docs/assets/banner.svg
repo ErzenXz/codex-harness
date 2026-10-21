@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" fill="none" role="img" aria-labelledby="title description">
-  <title id="title">Codex Harness</title>
-  <desc id="description">A minimal mint bracket mark beside the words Codex Harness. Native Rust. Small footprint.</desc>
+  <title id="title">Piko</title>
+  <desc id="description">A minimal mint bracket mark beside the words Piko. Native Rust. Small footprint.</desc>
   <rect width="1280" height="320" rx="20" fill="#111715"/>
   <path d="M0 265H1280" stroke="#27352E"/>
   <g stroke="#A8E9C1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
@@ -8,7 +8,7 @@
     <path d="M141 170L160 127L179 170M149 153H171"/>
   </g>
   <circle cx="160" cy="207" r="4" fill="#A8E9C1"/>
-  <text x="280" y="150" fill="#F2F6F3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="64" font-weight="600" letter-spacing="-2">Codex Harness</text>
+  <text x="280" y="150" fill="#F2F6F3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="64" font-weight="600" letter-spacing="-2">Piko</text>
   <text x="283" y="198" fill="#A6B5AB" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="25" letter-spacing="0.2">Native Rust. Small footprint.</text>
   <circle cx="93" cy="292" r="4" fill="#A8E9C1"/>
   <text x="111" y="298" fill="#A6B5AB" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16" letter-spacing="1">MACOS / LINUX / WINDOWS</text>

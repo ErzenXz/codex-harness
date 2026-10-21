@@ -1,11 +1,11 @@
 [package]
-name = "codex-harness"
-version = "0.3.1"
+name = "piko"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A quiet, ACP-native Rust harness for OpenAI coding agents"
+description = "A tiny, powerful native coding agent"
 license = "MIT"
-repository = "https://github.com/ErzenXz/codex-harness"
+repository = "https://github.com/ErzenXz/piko"
 
 [dependencies]
 anyhow = "1"

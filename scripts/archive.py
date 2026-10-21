@@ -13,8 +13,8 @@ p.add_argument("--out", required=True, type=Path)
 a = p.parse_args()
 version = json.loads(Path("package.json").read_text())["version"]
 a.out.mkdir(parents=True, exist_ok=True)
-name = f"codex-harness-{version}-{a.platform}"
-files = [(a.binary, "codex-harness.exe" if a.platform.startswith("win32") else "codex-harness"),
+name = f"piko-{version}-{a.platform}"
+files = [(a.binary, "piko.exe" if a.platform.startswith("win32") else "piko"),
          (Path("LICENSE"), "LICENSE"), (Path("THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md")]
 if a.platform.startswith("win32"):
     with zipfile.ZipFile(a.out / (name + ".zip"), "w", zipfile.ZIP_DEFLATED) as archive:

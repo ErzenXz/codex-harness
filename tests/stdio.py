@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-BINARY = Path(os.environ.get("HARNESS_BIN", "target/debug/codex-harness" + (".exe" if os.name == "nt" else ""))).resolve()
+BINARY = Path(os.environ.get("PIKO_BIN", os.environ.get("HARNESS_BIN", "target/debug/piko" + (".exe" if os.name == "nt" else "")))).resolve()
 FIXTURE_JPEG="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
 
 
@@ -143,7 +143,7 @@ class Harness:
         port = self.server.sockets[0].getsockname()[1]
         config = self.root / "config.toml"
         config.write_text(f'auth = "none"\nbase_url = "http://127.0.0.1:{port}/v1"\nstate_dir = {json.dumps(str(self.root / "state"))}\n{self.extra}')
-        env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_BASE_URL", "OPENAI_MODEL", "CODEX_HARNESS_STATE_DIR")}
+        env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_BASE_URL", "OPENAI_MODEL", "PIKO_STATE_DIR", "CODEX_HARNESS_STATE_DIR")}
         self.process = await asyncio.create_subprocess_exec(str(BINARY), "--config", str(config), env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=2**21)
         self.reader = asyncio.create_task(self.read())
