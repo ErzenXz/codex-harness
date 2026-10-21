@@ -1,3 +1,10 @@
+# 0.4.1
+
+- Record measured Piko 0.4.0 binary size, startup and memory in the README, with
+  reproducible raw results and an explicit 256-session workload description.
+- Validate the new npm trusted-publisher connections through a full GitHub OIDC
+  release, with provenance for all seven packages. Runtime behavior is unchanged.
+
 # 0.4.0
 
 - Rename Codex Harness to Piko. Install `@erzenx/piko` from npm and run `piko`.

@@ -1,0 +1,44 @@
+{
+  "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+  "binary_bytes": 4561504,
+  "binary_sha256": "fba4f9d759f41968fe04ab6c1837f8f333ab585b6f646798ca3cdf7119d39ea2",
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "logical_cpus": 10
+  },
+  "agents": 256,
+  "simulated_model_delay_ms": 50.0,
+  "startup_and_initialize_ms": 16.72,
+  "create_sessions_seconds": 0.409,
+  "complete_prompts_seconds": 0.793,
+  "synthetic_prompts_per_second": 322.7,
+  "prompt_latency_ms": {
+    "p50": 787.4,
+    "p95": 790.72
+  },
+  "peak_simultaneous_mock_requests": 256,
+  "process_memory_kib_and_threads": {
+    "idle": {
+      "VmRSS": 4064
+    },
+    "loaded": {
+      "VmRSS": 10352
+    },
+    "after_prompts": {
+      "VmRSS": 39376
+    }
+  },
+  "search_10000_files_end_to_end_ms": {
+    "samples": [
+      997.36,
+      403.89,
+      437.36,
+      275.5,
+      507.46
+    ],
+    "median": 437.36,
+    "engines": [
+      "ripgrep"
+    ]
+  }
+}

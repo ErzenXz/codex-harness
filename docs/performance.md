@@ -1,6 +1,6 @@
 # Performance
 
-The harness is a single native Rust process with one async event-loop thread,
+Piko is a single native Rust process with one async event-loop thread,
 shared HTTP connections and on-demand blocking workers. It starts no MCP servers,
 browsers or models until explicitly needed. Cap concurrency to your machine and
 provider allowance; unload idle sessions with `_harness/session/unload` to release
@@ -27,10 +27,10 @@ directly in your ACP client to eliminate launcher overhead on every platform.
 
 ```sh
 cargo build --release --locked
-HARNESS_BIN=target/release/piko python3 tests/benchmark.py --agents 10
+PIKO_BIN=target/release/piko python3 tests/benchmark.py --agents 10
 ```
 
-On Windows set `HARNESS_BIN` to the `.exe` path in your shell first. The benchmark
+On Windows set `PIKO_BIN` to the `.exe` path in your shell first. The benchmark
 uses temporary state/workspaces and loopback mock SSE; no credentials or paid
 model calls. It reports native binary bytes, ACP startup, ten simultaneous turns,
 process RSS (Linux/macOS) and search over 10,000 files. Startup includes fixture
@@ -41,6 +41,20 @@ throughput or a cache hit rate. RSS varies with platform, workload, active tools
 conversation length and configured concurrency. Context bytes bound serialized
 history; they do not cap total process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
+
+## Version 0.4.0 measurement (2026-10-21)
+
+The [six-target Piko verification](https://github.com/ErzenXz/piko/actions/runs/39651456713)
+passed on macOS/Linux/Windows, arm64/x64. The installed macOS arm64 binary matched
+that CI artifact exactly: 4,561,504 bytes, with 3.97 MiB idle sampled RSS and
+16.72 ms through ACP initialization in one local run.
+
+This run used 256 simultaneous mock turns, completing in 0.793 seconds with a
+50 ms simulated provider delay. Sampled RSS after those turns was 38.45 MiB.
+The concurrency differs from the ten-turn fixtures below, so these are not direct
+speed or memory comparisons. Model inference and real provider limits are excluded.
+
+[Raw results and binary hash](benchmarks/macos-arm64-0.4.0.json).
 
 ## Version 0.3.1 measurement (2026-10-21)
 
