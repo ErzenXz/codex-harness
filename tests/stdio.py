@@ -561,7 +561,10 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             await h.seen.wait()
             queued = asyncio.create_task(h.prompt(second))
             await asyncio.sleep(0.03)
-            for session in (first, second):
+            # Cancel the queued request before releasing the active model slot.
+            # Cancelling the running one first legitimately admits the queued HTTP
+            # request between notifications, especially with Windows pipe scheduling.
+            for session in (second, first):
                 await h.send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": session}})
             results = await asyncio.wait_for(asyncio.gather(running, queued), 1)
             self.assertTrue(all(r.get("result", {}).get("stopReason") == "cancelled" for r in results), results)
