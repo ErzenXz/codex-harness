@@ -1,113 +1,76 @@
-# Codex Harness
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ErzenXz/codex-harness/main/docs/assets/banner.svg" alt="Codex Harness — native Rust, small footprint." width="100%">
+</p>
 
-A small, quiet native Rust backend for coding agents. Your ACP-compatible app
-provides the UI; the harness handles streaming, file/search tools, isolated
-subagents, background jobs, MCP servers and optional computer use.
+<p align="center">
+  A small native Rust backend for coding agents.<br>
+  macOS · Linux · Windows &nbsp;/&nbsp; arm64 · x64
+</p>
 
-## Install
+<p align="center">
+  <a href="https://www.npmjs.com/package/codex-harness">npm</a> ·
+  <a href="https://github.com/ErzenXz/codex-harness/releases">Downloads</a> ·
+  <a href="https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md">Documentation</a>
+</p>
+
+## Quick start
 
 ```sh
 pnpm add -g codex-harness
-```
-
-Or use `npm install -g codex-harness`. Requires Node.js 22.15+ for the installer
-launcher. No Rust, Python, compilation, postinstall script or runtime download.
-Only the native package for your OS/CPU is installed. Supports macOS, Linux and
-Windows on arm64 and x64. Linux binaries use static musl and work on glibc and
-musl distributions. Windows runs natively; WSL is optional.
-
-Prefer no Node.js at all? Download the matching archive from
-[Releases](https://github.com/ErzenXz/codex-harness/releases), verify it against
-`SHA256SUMS`, and put the executable on PATH. `ripgrep` is recommended for faster
-search; a bounded Rust fallback is built in.
-
-## Sign in
-
-```sh
 codex-harness login
 ```
 
-Open the printed link, enter the code and approve access. Enable device-code
-login in ChatGPT security settings if requested. Your plan must allow the model;
-subscription limits still apply. No API key is needed for subscription sign-in.
+Requires pnpm and Node.js 22.15+. Installs only your platform's native binary, with no
+compilation or install scripts. [Standalone downloads](https://github.com/ErzenXz/codex-harness/releases)
+run without Node.js. Linux uses static musl; Windows runs natively.
 
-Defaults use `gpt-6-luna`. To choose reasoning, concurrency or another provider,
-copy a [starter configuration](examples/) to a trusted user directory and pass
-`--config /absolute/path/config.toml` to **both login and the ACP launcher**.
-[API key and provider setup](docs/reference.md#authentication-and-providers).
-No configuration is read from the project being edited.
-
-## Connect your ACP app
-
-Set its agent command to `codex-harness`, with arguments `["--acp"]`. For the
-lowest overhead, get the absolute native executable path once:
-
-```sh
-codex-harness --print-binary-path
-```
-
-Use that path directly in your app's launcher:
+Set your ACP app's agent command:
 
 ```json
-{
-  "command": "/absolute/path/printed/above/codex-harness",
-  "args": ["--acp"],
-  "env": {}
-}
+{ "command": "codex-harness", "args": ["--acp"] }
 ```
 
-On Windows the path ends in `.exe`. If using a custom config, append
-`"--config", "/absolute/path/config.toml"` to `args`. Your ACP app sends prompts
-and approvals over stdin/stdout. No files need to be installed in your projects.
+Your app provides the interface; the harness communicates over stdin/stdout.
+Subscription login uses your plan's model access and limits.
+[Other providers and API keys →](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#authentication-and-providers)
 
-A blank terminal is normal if you run the harness yourself: it waits for ACP
-messages. There is no terminal chat, web server or status banner. Closed stdin
-shuts it down. On macOS/Linux the npm launcher replaces itself with Rust using
-Node's `execve` where available; Windows uses a child process. Direct native
-launch avoids Node startup on every platform.
+## Performance
 
-## Small by design
+Measured locally on **macOS arm64 · v0.2.0**.
 
-- One current-thread async runtime, pooled HTTP and lazy shared MCP connections.
-- In-place streamed tool arguments and SSE fragments; no repeated whole-buffer
-  copies. JSON budget checks count bytes without allocating another JSON buffer.
-- Whole-turn history eviction, bounded files/streams/tool output, backpressure,
-  explicit concurrency caps and session unloading.
-- No telemetry, background updater, daemon or bundled browser/model/runtime.
-- Permission-gated edits/shell/MCP tools, plan mode, subagent roles, cancellation,
-  persistence and observed provider usage reporting stay available.
+| Metric | Result |
+| :--- | ---: |
+| Native binary | **4.48 MB** · 6.8% smaller |
+| Version startup, median | **5.82 ms** |
+| Idle memory, sampled RSS | **4.02 MiB** |
+| Streamed tool arguments, median | **2.02 ms** · ~29× faster |
 
-Performance figures and reproducible tests live in
-[Performance](docs/performance.md). These measure local overhead; model inference,
-provider limits and workload determine end-to-end agent performance.
+Size and streaming comparisons use the original `6f55af7` baseline. Streaming
+measures accumulation of 8,000 × 32-byte argument fragments; model latency is
+excluded. Memory and timings vary by workload.
+[Before/after results, methodology and reproduction →](https://github.com/ErzenXz/codex-harness/blob/main/docs/performance.md)
 
-Native desktop control requires Linux X11 and is disabled by default. For macOS
-and Windows desktop/browser control, connect a trusted MCP server. Approved shell,
-MCP and desktop tools can access the host; they are **not an OS sandbox**.
-Credentials are stored unencrypted in private local state. See
-[Security and limits](docs/reference.md#safety-boundaries).
+## Built to stay light
 
-## Update, remove, build
+One async event-loop thread, shared HTTP connections, lazy MCP connections and
+bounded history, files and tool output. No telemetry, daemon, updater or bundled
+browser/model.
 
-```sh
-pnpm add -g codex-harness@latest
-codex-harness logout
-pnpm remove -g codex-harness
-```
+Streaming, file/search tools, MCP, subagents, background jobs, persistent sessions,
+cancellation and permission controls are built in.
 
-Restart your ACP agent after updating. If you launch the printed native path,
-refresh that path after updating. Logout removes local login credentials; retained
-conversations remain in the state directory. On Unix state defaults to
-`$XDG_STATE_HOME/codex-harness` or `~/.local/state/codex-harness`; on Windows it is
-`%LOCALAPPDATA%\codex-harness`. `CODEX_HARNESS_STATE_DIR` overrides it.
+For the lowest launch overhead, run `codex-harness --print-binary-path` and use
+that executable directly in your ACP app. On macOS/Linux the standard launcher
+replaces Node with Rust where `execve` is available; Windows keeps a forwarding
+process until you use the native path.
 
-Source install (Rust 1.88+ and your OS build tools required):
+Approved tools can access your host. Native desktop control is optional and
+requires Linux X11; macOS/Windows computer use works through MCP. See
+[security and limits](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#safety-boundaries).
 
-```sh
-cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.0 --locked
-```
+---
 
-Missing platform package? Reinstall with optional dependencies enabled; do not
-use `--no-optional` or `--omit=optional`. There is no fallback network download.
-
-[Technical reference](docs/reference.md) · [Development and tests](docs/reference.md#development) · [Release process](docs/releasing.md)
+[Configuration](https://github.com/ErzenXz/codex-harness/tree/main/examples) ·
+[Install, update & remove](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#installation-and-maintenance) ·
+[Development](https://github.com/ErzenXz/codex-harness/blob/main/docs/reference.md#development) ·
+[MIT license](https://github.com/ErzenXz/codex-harness/blob/main/LICENSE)

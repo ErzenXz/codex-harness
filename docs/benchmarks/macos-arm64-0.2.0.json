@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-21",
+  "scope": "Local native overhead only; no model inference or competitor ranking",
+  "baseline_commit": "6f55af76726f7de217f7639c47d0f8ee008faebd",
+  "published_version": "0.2.0",
+  "npm": "https://www.npmjs.com/package/codex-harness",
+  "release": "https://github.com/ErzenXz/codex-harness/releases/tag/v0.2.0",
+  "native_ci": "https://github.com/ErzenXz/codex-harness/actions/runs/39605798717",
+  "registry_install": "pnpm12.14.0, scripts disabled, only darwin-arm64 native installed; exact reviewed release-age exemptions in isolated temp workspace",
+  "registry_acp_tests": {
+    "run": 24,
+    "passed": 23,
+    "skipped_linux_native_desktop": 1
+  },
+  "baseline": {
+    "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+    "binary_bytes": 4803360,
+    "binary_sha256": "2876d7e6757c539f543f575d8db2fd23f3890c1ebf7af6e00dbd02162e4b1021",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+      "logical_cpus": 10
+    },
+    "agents": 10,
+    "simulated_model_delay_ms": 50.0,
+    "startup_and_initialize_ms": 251.91,
+    "create_sessions_seconds": 0.023,
+    "complete_prompts_seconds": 0.073,
+    "synthetic_prompts_per_second": 136.1,
+    "prompt_latency_ms": {
+      "p50": 71.0,
+      "p95": 73.11
+    },
+    "peak_simultaneous_mock_requests": 10,
+    "process_memory_kib_and_threads": {
+      "idle": {
+        "VmRSS": 3888
+      },
+      "loaded": {
+        "VmRSS": 4432
+      },
+      "after_prompts": {
+        "VmRSS": 7008
+      }
+    },
+    "search_10000_files_end_to_end_ms": {
+      "samples": [
+        463.2,
+        675.66,
+        232.42,
+        218.68,
+        228.36
+      ],
+      "median": 232.42,
+      "engines": [
+        "ripgrep"
+      ]
+    },
+    "stream_hot_path": [
+      {
+        "argument_bytes": 32000,
+        "deltas": 1000,
+        "median_ms": 2.046166,
+        "samples_ms": [
+          1.0247089999999999,
+          1.147,
+          1.552083,
+          1.918083,
+          2.046166,
+          2.1168329999999997,
+          2.2005000000000003,
+          2.354208,
+          2.463584
+        ]
+      },
+      {
+        "argument_bytes": 256000,
+        "deltas": 8000,
+        "median_ms": 58.235459000000006,
+        "samples_ms": [
+          56.854042,
+          57.172042,
+          57.795874999999995,
+          58.182459,
+          58.235459000000006,
+          58.287208,
+          58.926083,
+          61.451583,
+          64.041
+        ]
+      }
+    ]
+  },
+  "optimized": {
+    "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+    "binary_bytes": 4475120,
+    "binary_sha256": "3fc9857c3be76e435d45b8bb141804dae079122ba19fd81987048b45f346f59f",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+      "logical_cpus": 10
+    },
+    "agents": 10,
+    "simulated_model_delay_ms": 50.0,
+    "startup_and_initialize_ms": 317.64,
+    "create_sessions_seconds": 0.029,
+    "complete_prompts_seconds": 0.067,
+    "synthetic_prompts_per_second": 149.1,
+    "prompt_latency_ms": {
+      "p50": 62.89,
+      "p95": 66.77
+    },
+    "peak_simultaneous_mock_requests": 10,
+    "process_memory_kib_and_threads": {
+      "idle": {
+        "VmRSS": 4112
+      },
+      "loaded": {
+        "VmRSS": 4672
+      },
+      "after_prompts": {
+        "VmRSS": 6736
+      }
+    },
+    "search_10000_files_end_to_end_ms": {
+      "samples": [
+        212.07,
+        207.35,
+        215.15,
+        216.3,
+        213.85
+      ],
+      "median": 213.85,
+      "engines": [
+        "ripgrep"
+      ]
+    },
+    "stream_hot_path": [
+      {
+        "argument_bytes": 32000,
+        "deltas": 1000,
+        "median_ms": 0.234375,
+        "samples_ms": [
+          0.14508300000000002,
+          0.149333,
+          0.15308300000000002,
+          0.193792,
+          0.234375,
+          0.295667,
+          0.462833,
+          0.535083,
+          0.757542
+        ]
+      },
+      {
+        "argument_bytes": 256000,
+        "deltas": 8000,
+        "median_ms": 2.024583,
+        "samples_ms": [
+          1.158,
+          1.508417,
+          1.5143330000000002,
+          1.668625,
+          2.024583,
+          2.119708,
+          2.335584,
+          2.361625,
+          2.452833
+        ]
+      }
+    ]
+  },
+  "metadata_startup": {
+    "baseline": {
+      "version_startup_p50_ms": 6.007333999150433,
+      "version_startup_p95_ms": 10.74279099702835
+    },
+    "optimized": {
+      "version_startup_p50_ms": 5.8217500045429915,
+      "version_startup_p95_ms": 9.645708996686153
+    }
+  }
+}

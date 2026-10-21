@@ -43,6 +43,10 @@ Same Mac, Rust 1.99, baseline `6f55af7` versus 0.2.0. Byte counts refer to
 stripped native release binaries. Startup uses 31 fresh `--version` processes;
 streamed-argument timings are the median of nine local runs.
 
+[Raw measurements and individual samples](benchmarks/macos-arm64-0.2.0.json)
+include both binaries' hashes, the test environment, available samples and
+summary statistics.
+
 | Measurement | Before | After |
 | --- | ---: | ---: |
 | Native binary bytes | 4,803,360 | 4,475,120 |
@@ -68,3 +72,16 @@ cargo run --release --locked --example stream_benchmark
 `--version` startup and file-search results are especially sensitive to OS binary
 verification and filesystem caches. Compare repeated runs on your target workload
 instead of treating small timing differences as guarantees.
+
+## Platform and installation verification
+
+The [release verification workflow](https://github.com/ErzenXz/codex-harness/actions/runs/39605798717)
+passed on macOS, Linux and Windows, each on arm64 and x64. It runs Rust tests,
+ACP integration tests, launcher and installation checks, then validates native
+packages and standalone archives. Performance numbers above come from macOS;
+the other platforms were checked for functionality.
+
+A separate fresh pnpm installation from the public npm registry installed only
+the matching macOS arm64 package. Its installed command passed 23 ACP integration
+tests; the Linux X11 desktop fixture was skipped. All seven npm payloads matched
+the verified release artifacts' SHA-512 integrity values.

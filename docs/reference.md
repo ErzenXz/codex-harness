@@ -12,6 +12,43 @@ client. Human-readable output is limited to explicit help, version, and login.
 latency, account quotas, cache residency, and code quality remain upstream and
 workload dependent. Benchmarks must separate local overhead from model inference.
 
+## Installation and maintenance
+
+Install the published command with `pnpm add -g codex-harness`, then run
+`codex-harness login`. The launcher requires Node.js 22.15+; the native executable
+itself does not require Node.js. Only your OS/CPU package is installed. Keep
+optional dependencies enabled; reinstall if they were omitted. There is no
+fallback network download. `ripgrep` is recommended for faster search; a bounded
+Rust fallback is built in.
+
+For a standalone installation, download your platform's archive from
+[Releases](https://github.com/ErzenXz/codex-harness/releases), verify its SHA-256
+against `SHA256SUMS`, then put the executable on PATH.
+
+```sh
+pnpm add -g codex-harness@latest
+codex-harness logout
+pnpm remove -g codex-harness
+```
+
+Restart your ACP agent after updating. If you launch the native path printed by
+`codex-harness --print-binary-path`, refresh that path after updating. Logout
+removes local login credentials; retained conversations remain in the state
+directory. On Unix state defaults to `$XDG_STATE_HOME/codex-harness` or
+`~/.local/state/codex-harness`; on Windows it is `%LOCALAPPDATA%\codex-harness`.
+`CODEX_HARNESS_STATE_DIR` overrides it.
+
+To choose reasoning, concurrency or another provider, copy a
+[starter configuration](../examples/) to a trusted user directory and pass
+`--config /absolute/path/config.toml` to **both login and the ACP launcher**.
+No configuration is read from the project being edited.
+
+Source installation requires Rust 1.88+ and your OS build tools:
+
+```sh
+cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.0 --locked
+```
+
 ## ACP launch contract
 
 See the [quick start](../README.md) for installation and sign-in. An ACP launcher
