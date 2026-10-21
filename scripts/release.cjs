@@ -50,7 +50,7 @@ function integrityMatches(bytes, integrity) {
   const actual = crypto.createHash('sha512').update(bytes).digest('base64');
   return values.some((value) => value.slice(7) === actual);
 }
-async function waitForPublished(name, file, timeoutMs = 180000) {
+async function waitForPublished(name, file, timeoutMs = 1200000) {
   const deadline = Date.now() + timeoutMs;
   const bytes = fs.readFileSync(file);
   let waiting = false;

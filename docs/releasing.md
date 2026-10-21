@@ -33,7 +33,12 @@ stay in runner temporary directories; local validation should also use scratch.
 3. The release workflow repeats verification, checks archive names/manifests,
    executable signatures and a strict five-file package allowlist, and publishes
    all six native packages before the launcher. It verifies registry visibility
-   after every publish. Matching existing versions make a partial publish resumable.
+   after every publish. npm's [publish-time scanning](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/)
+   can delay availability for several minutes after an accepted upload; the
+   visibility window is 20 minutes. Matching existing versions make a partial
+   publish resumable. If that window expires, check accepted uploads in the logs
+   and wait for their exact versions to become visible before rerunning the failed
+   publish job. Do not republish accepted versions blindly.
 4. It publishes checksummed native downloads and npm tarballs as a GitHub release.
 
 First publication needs authenticated maintainer access to create each package.
