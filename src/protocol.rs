@@ -478,6 +478,14 @@ impl Server {
             }
             _ => return Err(InvalidParams("Unknown configuration option").into()),
         }
+        // Clients may reselect the same model before every prompt. Avoid rewriting
+        // the full persisted history or emitting duplicate updates for a no-op.
+        if previous.0 == session.model
+            && previous.1 == session.reasoning_effort
+            && previous.2 == session.mode
+        {
+            return Ok(json!({"configOptions":self.config_options(&session,&slot.models)}));
+        }
         if let Err(error) = self.store.save(&session).await {
             (session.model, session.reasoning_effort, session.mode) = previous;
             return Err(error);

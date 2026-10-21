@@ -621,6 +621,12 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             created = await h.rpc("session/new", {"cwd": str(h.workspace), "mcpServers": []})
             session = created["result"]["sessionId"]
             selected = created["result"]["models"]["availableModels"][0]["modelId"]
+            path = h.root / "state" / "sessions" / f"{session}.json"
+            os.utime(path, (1, 1))
+            updates = len(h.updates)
+            self.assertEqual((await h.rpc("session/set_model", {"sessionId": session, "modelId": selected}))["result"], {})
+            self.assertEqual(path.stat().st_mtime_ns, 1000000000)
+            self.assertEqual(len(h.updates), updates)
             # CodeInk selects the advertised model before every prompt, even
             # when it is already current. This must be an idempotent operation.
             for _ in range(2):

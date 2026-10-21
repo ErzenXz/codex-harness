@@ -1,4 +1,4 @@
-# 0.3.0
+# 0.3.1
 
 - Discover available text models using your existing ChatGPT login or configured
   OpenAI-compatible provider, with names and model-specific reasoning levels.
@@ -8,6 +8,8 @@
 - Share one lazy catalog fetch across concurrent sessions and cache it privately
   for five minutes. Discovery is bounded to five seconds, 2 MiB input, 256 KiB normalized metadata and 512 models;
   unavailable providers fall back to the configured model. No new dependencies.
+- Avoid session-history writes and duplicate notifications when a client
+  reselects an unchanged model, reasoning level or mode.
 - Add per-model reasoning metadata for CodeInk's model picker, and protect OAuth
   token rotation when a discovery deadline cancels its waiting request.
 
