@@ -39,19 +39,18 @@ ACP app; selections persist per session. [Discovery and picker details →](http
 
 ## Performance
 
-Measured locally on **macOS arm64 · v0.2.0**.
+Measured locally on **macOS arm64 · v0.3.1**.
 
 | Metric | Result |
 | :--- | ---: |
-| Native binary | **4.48 MB** · 6.8% smaller |
-| Version startup, median | **5.82 ms** |
+| Native binary | **4.58 MB** |
+| ACP startup + initialize | **8.18 ms** |
 | Idle memory, sampled RSS | **4.02 MiB** |
-| Streamed tool arguments, median | **2.02 ms** · ~29× faster |
 
-Size and streaming comparisons use the original `6f55af7` baseline. Streaming
-measures accumulation of 8,000 × 32-byte argument fragments; model latency is
-excluded. Memory and timings vary by workload.
-[Before/after results, methodology and reproduction →](https://github.com/ErzenXz/codex-harness/blob/main/docs/performance.md)
+One synthetic run; startup includes local fixture setup and excludes model
+inference. Memory and timings vary by workload.
+[Raw results](https://github.com/ErzenXz/codex-harness/blob/main/docs/benchmarks/macos-arm64-0.3.1.json) ·
+[Before/after results and reproduction](https://github.com/ErzenXz/codex-harness/blob/main/docs/performance.md)
 
 ## Built to stay light
 

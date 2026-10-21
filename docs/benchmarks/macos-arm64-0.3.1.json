@@ -1,0 +1,46 @@
+{
+  "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+  "binary_bytes": 4576720,
+  "binary_sha256": "4ca67b0eeb7b3b14ba3142498693982dcfb70ef9b609d4b61400b38648020994",
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "logical_cpus": 10
+  },
+  "agents": 10,
+  "simulated_model_delay_ms": 50.0,
+  "startup_and_initialize_ms": 8.18,
+  "create_sessions_seconds": 0.018,
+  "complete_prompts_seconds": 0.072,
+  "synthetic_prompts_per_second": 139.5,
+  "prompt_latency_ms": {
+    "p50": 67.27,
+    "p95": 71.37
+  },
+  "peak_simultaneous_mock_requests": 10,
+  "process_memory_kib_and_threads": {
+    "idle": {
+      "VmRSS": 4112
+    },
+    "loaded": {
+      "VmRSS": 4928
+    },
+    "after_prompts": {
+      "VmRSS": 6688
+    }
+  },
+  "search_10000_files_end_to_end_ms": {
+    "samples": [
+      196.62,
+      197.75,
+      197.78,
+      193.58,
+      198.31
+    ],
+    "median": 197.75,
+    "engines": [
+      "ripgrep"
+    ]
+  },
+  "version": "0.3.1",
+  "release_workflow": "https://github.com/ErzenXz/codex-harness/actions/runs/39641540994"
+}

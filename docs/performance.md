@@ -42,7 +42,21 @@ conversation length and configured concurrency. Context bytes bound serialized
 history; they do not cap total process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
-## macOS arm64 measurements (2026-10-21)
+## Version 0.3.1 measurement (2026-10-21)
+
+The [six-target release verification](https://github.com/ErzenXz/codex-harness/actions/runs/39641540994)
+passed on native macOS/Linux/Windows runners, each on arm64 and x64. The public
+npm install matched the verified macOS arm64 artifact by SHA-256.
+
+One local run of the optimized macOS arm64 release measured a 4,576,720-byte
+binary, 8.18 ms through ACP initialization, 4.02 MiB idle sampled RSS and 6.53 MiB
+after ten concurrent mock turns. Those turns completed in 72 ms with 50 ms mock
+provider delay. Initialization includes temporary fixture and HTTP setup.
+These are synthetic overhead measurements, not provider throughput guarantees.
+
+[Raw results and binary hash](benchmarks/macos-arm64-0.3.1.json).
+
+## Version 0.2.0 before/after measurements (2026-10-21)
 
 Same Mac, Rust 1.99, baseline `6f55af7` versus 0.2.0. Byte counts refer to
 stripped native release binaries. Startup uses 31 fresh `--version` processes;
