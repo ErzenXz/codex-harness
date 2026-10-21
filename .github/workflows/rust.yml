@@ -59,6 +59,7 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo build --release --locked --target '${{ matrix.target }}'
       - run: python tests/stdio.py
+      - run: python tests/reliability.py
       - run: pnpm test:package
       - run: pnpm test:install
       - name: Stage and pack native npm package

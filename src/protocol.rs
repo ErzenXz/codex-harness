@@ -222,11 +222,7 @@ impl Server {
                 } else {
                     Session::new(&workspace, &self.config)
                 };
-                let mut sessions = self.sessions.lock().await;
-                ensure!(
-                    sessions.len() < self.config.max_sessions,
-                    "Loaded session limit reached; unload a session first"
-                );
+                // Discovery may perform network I/O; never hold the session registry lock.
                 let models = self.provider.models().await;
                 if session.version == 1 {
                     session.reasoning_effort = self.config.reasoning_effort.clone();
@@ -250,6 +246,11 @@ impl Server {
                     mcp,
                     models,
                 });
+                let mut sessions = self.sessions.lock().await;
+                ensure!(
+                    sessions.len() < self.config.max_sessions,
+                    "Loaded session limit reached; unload a session first"
+                );
                 ensure!(!sessions.contains_key(&id), "Session already loaded");
                 sessions.insert(id, slot.clone());
                 drop(sessions);
@@ -567,22 +568,52 @@ impl Server {
             reserved <= self.config.context_bytes,
             "Prompt and project instructions exceed context budget"
         );
-        let mut items = session.context(self.config.context_bytes - reserved);
-        if session.dropped_turns > 0 {
-            items.insert(0,json!({"role":"developer","content":format!("{} older completed turns were evicted to bound memory. Do not assume their contents; re-read the current workspace as needed.",session.dropped_turns)}));
+        let (mut items, omitted) =
+            session.context_with_omitted(self.config.context_bytes - reserved);
+        if omitted + session.dropped_turns > 0 {
+            items.insert(0,json!({"role":"developer","content":format!("{} older turns are outside the model window. Do not assume their contents; re-read the workspace as needed. Saved history is separate from this window.",omitted + session.dropped_turns)}));
         }
         let start = items.len();
         items.push(user);
-        let result =
-            crate::agent::run_with_instructions(&ctx, &mut items, instructions, toolset).await;
+        let base_bytes = crate::session::json_bytes(&*session)?;
+        // Check capacity before spending a request. Durable intent is written
+        // before the first tool boundary; read-only replies need one final save.
+        ensure!(
+            base_bytes
+                .saturating_add(crate::session::json_bytes(&items[start..])?)
+                .saturating_add(1024)
+                <= crate::session::MAX_SESSION_BYTES as usize,
+            "Session reached its 16MiB persistence limit; start a new session. Saved history is preserved."
+        );
+        let result = crate::agent::run_with_instructions(
+            &ctx,
+            &mut items,
+            instructions,
+            toolset,
+            Some(crate::agent::Checkpoint {
+                store: &self.store,
+                session: &session,
+                start,
+                base_bytes,
+            }),
+        )
+        .await;
         // Save complete exchanges only; interrupted responses never enter model history.
         let mut turn = items.split_off(start);
         repair_calls(&mut turn);
         session.turns.push_back(Turn { items: turn });
-        session.trim(self.config.context_bytes);
         let saved = self.store.save(&session).await;
         *slot.cancel.lock().await = self.shutdown.child_token();
-        saved?;
+        if let Err(error) = saved {
+            // Never retain an unbounded unsaved turn, or overwrite its recovery
+            // checkpoint with a later prompt. Reload explicitly after a save failure.
+            session.turns.pop_back();
+            self.sessions.lock().await.remove(&session.id);
+            slot.jobs.cancel_all().await;
+            return Err(
+                error.context("Could not commit session; reload it to recover the last checkpoint")
+            );
+        }
         if cancel.is_cancelled() {
             return Ok(json!({"stopReason":"cancelled"}));
         }
@@ -675,20 +706,26 @@ impl Server {
     }
 }
 
-pub fn repair_calls(items: &mut Vec<Value>) {
-    let calls: Vec<_> = items
-        .iter()
-        .filter(|v| v["type"] == "function_call")
-        .filter_map(|v| v["call_id"].as_str().map(str::to_owned))
-        .collect();
-    for id in calls {
-        if !items
-            .iter()
-            .any(|v| v["type"] == "function_call_output" && v["call_id"] == id)
-        {
-            items.push(json!({"type":"function_call_output","call_id":id,"output":json!({"error":"Tool was interrupted and not executed to completion. Inspect current state before retrying."}).to_string()}));
+pub(crate) fn unanswered_outputs(items: &[Value]) -> Vec<Value> {
+    let mut pending = Vec::new();
+    // Match in sequence: compatible providers may reuse an ID in a later step.
+    // An older result must not hide a newly interrupted call with the same ID.
+    for item in items {
+        if let Some(id) = item["call_id"].as_str() {
+            if item["type"] == "function_call" {
+                pending.push(id);
+            } else if item["type"] == "function_call_output"
+                && let Some(index) = pending.iter().position(|pending| *pending == id)
+            {
+                pending.remove(index);
+            }
         }
     }
+    pending.into_iter().map(|id| json!({"type":"function_call_output","call_id":id,"output":json!({"error":"Tool was interrupted and not executed to completion. Inspect current state before retrying."}).to_string()})).collect()
+}
+
+pub fn repair_calls(items: &mut Vec<Value>) {
+    items.extend(unanswered_outputs(items));
 }
 
 fn short(text: &str, limit: usize) -> String {
@@ -872,4 +909,77 @@ async fn shutdown_signal() {
         }
     }
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::Notify,
+    };
+
+    #[tokio::test]
+    async fn slow_model_discovery_does_not_block_session_cancellation() {
+        let temp = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let fixture = tokio::spawn({
+            let started = started.clone();
+            let release = release.clone();
+            async move {
+                for index in 0..2 {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    let mut stream = BufReader::new(stream);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        stream.read_line(&mut line).await.unwrap();
+                        if line == "\r\n" {
+                            break;
+                        }
+                    }
+                    if index == 1 {
+                        started.notify_one();
+                        release.notified().await;
+                    }
+                    stream.get_mut().write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                }
+            }
+        });
+        let config = Config {
+            auth: "none".into(),
+            base_url: format!("http://{address}/v1"),
+            state_dir: temp.path().join("state"),
+            ..Config::default()
+        };
+        let (peer, _outbound) = Peer::channel(16);
+        let server = Arc::new(Server::new(config, peer).await.unwrap());
+        server
+            .handle("initialize", json!({"protocolVersion":1}))
+            .await
+            .unwrap();
+        let params = json!({"cwd":temp.path(), "mcpServers":[]});
+        let first = server.handle("session/new", params.clone()).await.unwrap();
+        server.provider.invalidate_models().await;
+        let creation = tokio::spawn({
+            let server = server.clone();
+            async move { server.handle("session/new", params).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), started.notified())
+            .await
+            .unwrap();
+        let cancelled = tokio::time::timeout(
+            Duration::from_millis(250),
+            server.handle("session/cancel", json!({"sessionId":first["sessionId"]})),
+        )
+        .await;
+        release.notify_one();
+        assert!(cancelled.unwrap().is_ok());
+        assert!(creation.await.unwrap().is_ok());
+        fixture.await.unwrap();
+    }
 }

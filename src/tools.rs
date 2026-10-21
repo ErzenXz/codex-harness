@@ -1,6 +1,6 @@
 use crate::{
     agent::{AgentContext, run_agent},
-    workspace::{read_bounded, truncate},
+    workspace::{read_text_page, truncate},
 };
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
@@ -21,7 +21,7 @@ pub fn definitions(read_only: bool, can_spawn: bool) -> Vec<Value> {
     let mut tools = vec![
         function(
             "read_file",
-            "Read a workspace text file with 1-based numbered lines. Protected credential paths are denied.",
+            "Read a workspace UTF-8 text file with 1-based numbered lines. Follow next_offset_line to continue; line_truncated marks an oversized line. Protected credential paths are denied.",
             json!({"path":{"type":"string"},"offset_line":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":1000}}),
         ),
         function(
@@ -74,18 +74,20 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
                 !path.starts_with(&ctx.config.state_dir),
                 "Harness state is protected"
             );
-            let content = read_bounded(&path, 1024 * 1024).await?;
             let offset = integer(args, "offset_line")?.max(1) as usize;
             let limit = integer(args, "limit")?.clamp(1, 1000) as usize;
-            let output = content
-                .lines()
-                .enumerate()
-                .skip(offset - 1)
-                .take(limit)
-                .map(|(i, line)| format!("{}: {line}", i + 1))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Ok(json!({"path":path,"content":truncate(&output,ctx.config.tool_output_bytes)}))
+            // The model receives serialized JSON, so reserve all metadata and
+            // budget JSON escaping as well as the visible text itself.
+            let overhead = json!({"path":path,"content":"","next_offset_line":usize::MAX,"truncated":false,"line_truncated":false}).to_string().len();
+            let budget = ctx.config.tool_output_bytes.saturating_sub(overhead);
+            ensure!(
+                budget >= 32,
+                "Path is too long for the configured tool output budget"
+            );
+            let page = read_text_page(&path, offset, limit, budget, &ctx.cancel).await?;
+            Ok(
+                json!({"path":path,"content":page.content,"next_offset_line":page.next_offset_line,"truncated":page.next_offset_line.is_some(),"line_truncated":page.line_truncated}),
+            )
         }
         "glob" | "grep" => {
             crate::search::search(
@@ -113,26 +115,14 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
                 "Harness state is protected"
             );
             let before = match tokio::fs::try_exists(&path).await? {
-                true => Some(read_bounded(&path, 256 * 1024).await?),
+                true => Some(read_editable_text(&path).await?),
                 false => None,
             };
-            if let Some(content) = &before {
-                ensure!(
-                    !content.ends_with("\n[truncated]"),
-                    "File too large for safe editing"
-                );
-            }
             let after = if name == "write_file" {
                 string(args, "content")?.to_owned()
             } else {
-                let old = string(args, "old_text")?;
-                ensure!(!old.is_empty(), "old_text cannot be empty");
                 let before = before.as_ref().context("File does not exist")?;
-                ensure!(
-                    before.matches(old).count() == 1,
-                    "old_text must match exactly once; read the file and retry"
-                );
-                before.replacen(old, string(args, "new_text")?, 1)
+                exact_edit(before, string(args, "old_text")?, string(args, "new_text")?)?
             };
             ensure!(after.len() <= 256 * 1024, "File write exceeds 256KiB limit");
             ctx.peer
@@ -147,7 +137,7 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
                 .await?;
             // The human may have edited while approval was pending.
             let current = if tokio::fs::try_exists(&path).await? {
-                Some(read_bounded(&path, 256 * 1024).await?)
+                Some(read_editable_text(&path).await?)
             } else {
                 None
             };
@@ -160,6 +150,7 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
                 .resolve(string(args, "path")?, name == "write_file")
                 .await?;
             ensure!(checked == path, "Path changed while awaiting approval");
+            ensure!(!ctx.cancel.is_cancelled(), "Cancelled");
             atomic_write(&path, &after).await?;
             Ok(json!({"path":path,"bytes":after.len(),"status":"written"}))
         }
@@ -317,6 +308,52 @@ fn integer(value: &Value, key: &str) -> Result<u64> {
         .with_context(|| format!("Missing nonnegative integer: {key}"))
 }
 
+async fn read_editable_text(path: &std::path::Path) -> Result<String> {
+    use tokio::io::AsyncReadExt;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    let file = options.open(path).await?;
+    let metadata = file.metadata().await?;
+    ensure!(metadata.is_file(), "Not a regular file");
+    crate::workspace::ensure_private_file(&metadata)?;
+    let mut bytes = Vec::new();
+    file.take(256 * 1024 + 1).read_to_end(&mut bytes).await?;
+    ensure!(
+        bytes.len() <= 256 * 1024,
+        "File too large for safe editing (256KiB limit)"
+    );
+    ensure!(!bytes.contains(&0), "Binary file is not supported");
+    String::from_utf8(bytes).context(
+        "File is not UTF-8; use an explicitly approved shell command to edit its original encoding",
+    )
+}
+
+fn exact_edit(before: &str, old: &str, new: &str) -> Result<String> {
+    ensure!(!old.is_empty(), "old_text cannot be empty");
+    let start = before
+        .find(old)
+        .context("old_text was not found; read the file and retry")?;
+    // Resume one character after the first start, rather than after its end:
+    // "aa" is ambiguous in "aaa", even though str::matches reports it once.
+    let next = start
+        + before[start..]
+            .chars()
+            .next()
+            .expect("nonempty match")
+            .len_utf8();
+    ensure!(
+        !before[next..].contains(old),
+        "old_text is ambiguous; include more surrounding text and retry"
+    );
+    let mut after = String::with_capacity(before.len() - old.len() + new.len());
+    after.push_str(&before[..start]);
+    after.push_str(new);
+    after.push_str(&before[start + old.len()..]);
+    Ok(after)
+}
+
 async fn atomic_write(path: &std::path::Path, text: &str) -> Result<()> {
     let parent = path.parent().context("Invalid target path")?;
     tokio::fs::create_dir_all(parent).await?;
@@ -341,4 +378,74 @@ async fn atomic_write(path: &std::path::Path, text: &str) -> Result<()> {
         let _ = tokio::fs::remove_file(temporary).await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_edits_reject_missing_overlapping_and_repeated_matches() {
+        assert!(exact_edit("aaa", "aa", "b").is_err());
+        assert!(exact_edit("ééé", "éé", "b").is_err());
+        assert!(exact_edit("same same", "same", "b").is_err());
+        assert!(exact_edit("text", "absent", "b").is_err());
+        assert!(exact_edit("text", "", "b").is_err());
+        assert_eq!(
+            exact_edit("first\r\nunique\r\nlast", "unique", "changed").unwrap(),
+            "first\r\nchanged\r\nlast"
+        );
+    }
+
+    #[tokio::test]
+    async fn editable_reads_reject_lossy_encoding_and_real_truncation() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        tokio::fs::write(&path, b"before\xffafter").await.unwrap();
+        assert!(read_editable_text(&path).await.is_err());
+        tokio::fs::write(&path, "literal\n[truncated]")
+            .await
+            .unwrap();
+        assert_eq!(
+            read_editable_text(&path).await.unwrap(),
+            "literal\n[truncated]"
+        );
+        tokio::fs::write(&path, vec![b'a'; 256 * 1024 + 1])
+            .await
+            .unwrap();
+        assert!(read_editable_text(&path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn atomic_writes_preserve_existing_permissions_and_clean_failed_temps() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        tokio::fs::write(&path, "before").await.unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .await
+                .unwrap();
+        }
+        atomic_write(&path, "after").await.unwrap();
+        assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "after");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                tokio::fs::metadata(&path)
+                    .await
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+        }
+        let directory = root.path().join("directory");
+        tokio::fs::create_dir(&directory).await.unwrap();
+        assert!(atomic_write(&directory, "failure").await.is_err());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
 }

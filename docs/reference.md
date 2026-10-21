@@ -48,7 +48,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/piko --tag v0.4.1 --locked
+cargo install --git https://github.com/ErzenXz/piko --tag v0.5.0 --locked
 ```
 
 ## ACP launch contract
@@ -180,7 +180,8 @@ and [reasoning reference](https://developers.openai.com/api/docs/guides/reasonin
 - Foreground/background subagents, shell jobs, task output/status, and cancellation.
 - Concurrent independent reads/searches/delegations; mutations remain ordered.
 - Exact-match edits with a post-approval conflict check and atomic replacement.
-- Atomic persisted conversations, load/replay, and whole-turn context eviction.
+- Durable conversations and active-turn checkpoints, with load/replay and whole-turn
+  model-context projection. Older saved turns remain on disk when outside the window.
   Active-turn context exhaustion stops safely; this is not semantic compaction.
 
 ### Performance and memory
@@ -202,7 +203,9 @@ capacity. Excess model/search work queues; nested subagent admission fails fast
 rather than deadlocking. Completed job records are evicted when slots are needed.
 
 Memory scales with active conversations, in-flight JSON, HTTP buffers, and jobs.
-The context budget is a serialized-history limit, not a total RSS guarantee. There
+The context budget bounds serialized model input, not total RSS. Durable history
+is retained separately, up to 16 MiB per loaded session; unload idle sessions to
+release it. The cap does not bound aggregate RSS across all sessions. There
 is a 1 MiB inbound ACP frame limit and bounded SSE/tool/session buffers. Slow clients
 apply output backpressure rather than accumulating unlimited updates.
 
@@ -382,7 +385,12 @@ Text and local `file:` resource-link prompts are supported. Image **tool outputs
 are supported as above; incoming image/audio prompts and client filesystem/terminal
 delegation are not implemented. MCP HTTP support is advertised during initialize
 (stdio is implicit in ACP); legacy SSE transport is explicitly not advertised.
-History is a bounded rolling window; evicted turns cannot be reconstructed on load.
+Model context is a bounded window of complete turns; saved history survives that
+projection. Conversation storage stops at 16 MiB per session instead of silently
+dropping old turns. Active-turn checkpoints record user intent, pending tools and
+completed tool groups. Loading repairs interrupted calls without executing them.
+After an interrupted host action, inspect current state before retrying it.
+See [execution and recovery design](design.md).
 
 ## Development
 
@@ -391,7 +399,7 @@ cargo fmt --all -- --check
 cargo check --locked --all-targets
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
-cargo build --locked && python3 tests/stdio.py
+cargo build --locked && python3 tests/stdio.py && python3 tests/reliability.py
 ```
 
 Tests use temporary workspaces, mock desktop executables and loopback model/MCP
@@ -409,6 +417,19 @@ python3 tests/benchmark.py --agents 10
 It reports startup, throughput/latency against a simulated 50 ms loopback model,
 Linux process RSS/high-water mark or macOS sampled RSS, and end-to-end native search over 10,000 files.
 Small synthetic conversations do not predict memory use for full coding sessions.
+
+### Coding-task validation (2026-10-21)
+
+Piko 0.5.0 used an existing ChatGPT login with `gpt-6-luna` and low reasoning
+on a small isolated Python fixture. It read project guidance and source, fixed
+inclusive clamping and invalid bounds through one approved exact edit, and ran
+`python3 -m unittest -q` through one approved shell call. An independent test
+run passed both tests; the unrelated sentinel file was unchanged. The turn used
+five model responses and completed in about ten seconds on this Mac.
+
+This checks one real read/edit/verify workflow. It does not establish a coding
+benchmark win, broad model quality or production error rate. No credentials were
+copied into the fixture or test output.
 
 ### Bounded live validation (2026-10-19)
 

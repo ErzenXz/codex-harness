@@ -1,6 +1,7 @@
 use anyhow::{Result, bail, ensure};
 use std::path::{Component, Path, PathBuf};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct Workspace {
@@ -136,6 +137,150 @@ pub async fn read_bounded(path: &Path, limit: usize) -> Result<String> {
     Ok(text)
 }
 
+/// A bounded page can continue beyond the first MiB without loading the file.
+pub struct TextPage {
+    pub content: String,
+    pub next_offset_line: Option<usize>,
+    pub line_truncated: bool,
+}
+
+pub async fn read_text_page(
+    path: &Path,
+    offset: usize,
+    lines: usize,
+    limit: usize,
+    cancel: &CancellationToken,
+) -> Result<TextPage> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    let file = options.open(path).await?;
+    let metadata = file.metadata().await?;
+    ensure!(metadata.is_file(), "Not a regular file");
+    ensure_private_file(&metadata)?;
+    let mut reader = BufReader::new(file);
+    let mut content = String::new();
+    let mut line = Vec::new();
+    let mut output_bytes = 0usize;
+    let mut line_bytes = 0usize;
+    let mut number = 1usize;
+    let mut returned = 0usize;
+    loop {
+        ensure!(!cancel.is_cancelled(), "Cancelled");
+        let buffer = tokio::select! {
+            _ = cancel.cancelled() => bail!("Cancelled"),
+            result = reader.fill_buf() => result?,
+        };
+        if buffer.is_empty() {
+            if !line.is_empty() {
+                append_numbered_line(&mut content, &line, number, false)?;
+            }
+            ensure!(
+                !content.is_empty() || offset == 1,
+                "offset_line is beyond end of file"
+            );
+            return Ok(TextPage {
+                content,
+                next_offset_line: None,
+                line_truncated: false,
+            });
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(buffer.len(), |index| index + 1);
+        if number >= offset {
+            let segment = &buffer[..newline.unwrap_or(buffer.len())];
+            let prefix = number.to_string().len() + 2 + 2 * usize::from(!content.is_empty());
+            let available = limit.saturating_sub(output_bytes + prefix + line_bytes);
+            let (fitting, escaped_bytes) = escaped_prefix(segment, available);
+            if fitting < segment.len() {
+                if content.is_empty() {
+                    line.extend_from_slice(&segment[..fitting]);
+                    append_numbered_line(&mut content, &line, number, true)?;
+                    return Ok(TextPage {
+                        content,
+                        next_offset_line: Some(number + 1),
+                        line_truncated: true,
+                    });
+                }
+                return Ok(TextPage {
+                    content,
+                    next_offset_line: Some(number),
+                    line_truncated: false,
+                });
+            }
+            line.extend_from_slice(segment);
+            line_bytes += escaped_bytes;
+            if newline.is_some() {
+                append_numbered_line(&mut content, &line, number, false)?;
+                output_bytes += prefix + line_bytes;
+                line.clear();
+                line_bytes = 0;
+                returned += 1;
+            }
+        }
+        reader.consume(consumed);
+        if newline.is_some() {
+            number += 1;
+            if returned >= lines {
+                let more = tokio::select! {
+                    _ = cancel.cancelled() => bail!("Cancelled"),
+                    result = reader.fill_buf() => !result?.is_empty(),
+                };
+                return Ok(TextPage {
+                    content,
+                    next_offset_line: more.then_some(number),
+                    line_truncated: false,
+                });
+            }
+        }
+    }
+}
+
+// Count the exact JSON string escaping cost without allocating another string.
+// UTF-8 bytes stay unchanged; an incomplete final character is trimmed by the caller.
+fn escaped_prefix(bytes: &[u8], limit: usize) -> (usize, usize) {
+    let mut cost = 0;
+    for (index, byte) in bytes.iter().enumerate() {
+        let next = match byte {
+            b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 8 | 12 => 2,
+            0..=31 => 6,
+            _ => 1,
+        };
+        if cost + next > limit {
+            return (index, cost);
+        }
+        cost += next;
+    }
+    (bytes.len(), cost)
+}
+
+fn append_numbered_line(
+    output: &mut String,
+    bytes: &[u8],
+    number: usize,
+    partial: bool,
+) -> Result<()> {
+    ensure!(!bytes.contains(&0), "Binary file is not supported");
+    // A byte cap may split a UTF-8 character; omit just that incomplete suffix.
+    // Reject actual encoding errors instead of inventing replacement characters.
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) if partial && error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()])?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if !output.is_empty() {
+        output.push('\n');
+    }
+    output.push_str(&format!(
+        "{number}: {}",
+        text.strip_suffix('\r').unwrap_or(text)
+    ));
+    Ok(())
+}
+
 pub fn truncate(text: &str, limit: usize) -> String {
     if text.len() <= limit {
         return text.to_owned();
@@ -164,6 +309,87 @@ pub fn ensure_private_file(metadata: &std::fs::Metadata) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn text_pages_continue_beyond_first_megabyte_and_report_next_line() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("large.txt");
+        let mut content = "padding padding padding\n".repeat(50000);
+        content.push_str("last é\nfinal");
+        tokio::fs::write(&path, content).await.unwrap();
+        let cancel = CancellationToken::new();
+        let page = read_text_page(&path, 50001, 1, 1024, &cancel)
+            .await
+            .unwrap();
+        assert_eq!(page.content, "50001: last é");
+        assert_eq!(page.next_offset_line, Some(50002));
+        assert!(!page.line_truncated);
+        let page = read_text_page(&path, 50002, 2, 1024, &cancel)
+            .await
+            .unwrap();
+        assert_eq!(page.content, "50002: final");
+        assert_eq!(page.next_offset_line, None);
+        assert!(
+            read_text_page(&path, 50003, 1, 1024, &cancel)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn page_boundary_inside_reader_buffer_never_skips_a_line() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        let content = format!("{}\n{}\nlast", "a".repeat(8000), "b".repeat(1000));
+        tokio::fs::write(&path, content).await.unwrap();
+        let cancel = CancellationToken::new();
+        let page = read_text_page(&path, 1, 100, 8500, &cancel).await.unwrap();
+        assert_eq!(page.content, format!("1: {}", "a".repeat(8000)));
+        assert_eq!(page.next_offset_line, Some(2));
+        assert!(!page.line_truncated);
+        let page = read_text_page(&path, 2, 100, 8500, &cancel).await.unwrap();
+        assert_eq!(page.content, format!("2: {}\n3: last", "b".repeat(1000)));
+        assert_eq!(page.next_offset_line, None);
+    }
+
+    #[tokio::test]
+    async fn text_page_budget_counts_json_escaping_and_preserves_complete_lines() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        tokio::fs::write(&path, "\"\\\t\u{1}\n".repeat(30))
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let page = read_text_page(&path, 1, 100, 64, &cancel).await.unwrap();
+        assert!(serde_json::to_string(&page.content).unwrap().len() - 2 <= 64);
+        assert!(page.next_offset_line.is_some());
+        assert!(!page.line_truncated);
+        let next = page.next_offset_line.unwrap();
+        let page = read_text_page(&path, next, 1, 64, &cancel).await.unwrap();
+        assert!(page.content.starts_with(&format!("{next}: ")));
+    }
+
+    #[tokio::test]
+    async fn text_pages_bound_long_lines_without_corrupting_utf8() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        let cancel = CancellationToken::new();
+        tokio::fs::write(&path, "é".repeat(10000)).await.unwrap();
+        let page = read_text_page(&path, 1, 10, 8, &cancel).await.unwrap();
+        assert!(page.content.len() <= 8);
+        assert_eq!(page.content, "1: éé");
+        assert!(page.line_truncated);
+        assert_eq!(page.next_offset_line, Some(2));
+        tokio::fs::write(&path, "first\r\nsecond\nthird")
+            .await
+            .unwrap();
+        let page = read_text_page(&path, 1, 10, 12, &cancel).await.unwrap();
+        assert_eq!(page.content, "1: first");
+        assert_eq!(page.next_offset_line, Some(2));
+        assert!(!page.line_truncated);
+        cancel.cancel();
+        assert!(read_text_page(&path, 1, 10, 1024, &cancel).await.is_err());
+    }
 
     #[tokio::test]
     async fn absolute_paths_are_canonicalized_before_containment_checks() {

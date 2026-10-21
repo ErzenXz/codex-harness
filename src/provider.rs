@@ -1,12 +1,57 @@
 use crate::{auth::Auth, config::Config, metrics::Metrics, protocol::Peer};
 use anyhow::{Context, Result, bail, ensure};
 use futures_util::StreamExt;
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 const MAX_EVENT: usize = 4 * 1024 * 1024;
+
+// Borrow conversation values until serialization; retries share the encoded body bytes.
+#[derive(Serialize)]
+struct ResponsesRequest<'a> {
+    model: &'a str,
+    instructions: &'a str,
+    input: &'a [Value],
+    tools: &'a [Value],
+    stream: bool,
+    store: bool,
+    parallel_tool_calls: bool,
+    tool_choice: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    include: [&'static str; 1],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<Reasoning<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_key: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_retention: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct Reasoning<'a> {
+    effort: &'a str,
+}
+
+fn retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn retry_delay(header: Option<&reqwest::header::HeaderValue>, attempt: u32) -> Result<Duration> {
+    let seconds = match header {
+        Some(header) => header
+            .to_str()
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|seconds| *seconds <= 30)
+            .context("Provider requested a later retry; wait for its Retry-After interval before trying again")?,
+        None => 1 << attempt.min(3),
+    };
+    Ok(Duration::from_secs(seconds))
+}
 
 #[derive(Clone)]
 pub struct Provider {
@@ -70,29 +115,48 @@ impl Provider {
         agent_id: Option<&str>,
         cancel: &CancellationToken,
     ) -> Result<Response> {
+        // One deadline includes queueing, authentication, retries, backoff and the
+        // complete SSE body. A retry never grants the model another full timeout.
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_secs(self.config.request_timeout_secs);
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => bail!("Cancelled"),
+            result = tokio::time::timeout_at(deadline, self.respond_inner(
+                model, reasoning_effort, instructions, input, tools, peer,
+                session_id, agent_id, cancel,
+            )) => result.context("Model request deadline exceeded; retry when ready")?,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn respond_inner(
+        &self,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        instructions: &str,
+        input: &[Value],
+        tools: &[Value],
+        peer: &Peer,
+        session_id: &str,
+        agent_id: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<Response> {
         let _permit = tokio::select! {
             _ = cancel.cancelled() => bail!("Cancelled"),
             permit = self.requests.acquire() => permit?,
         };
         let chat = self.config.wire_api == "chat_completions";
         let mut credentials = self.auth.credentials(&self.client, false).await?;
-        let mut body = json!({
-            "model": model, "instructions": instructions, "input": input, "tools": tools,
-            "stream": true, "store": false, "parallel_tool_calls": true, "tool_choice":"auto",
-            "max_output_tokens": self.config.max_output_tokens,
-            "include": ["reasoning.encrypted_content"]
-        });
-        if let Some(effort) = reasoning_effort {
-            body["reasoning"] = json!({"effort": effort});
-        }
-        if credentials.account_id.is_some() {
-            body.as_object_mut()
-                .expect("object")
-                .remove("max_output_tokens");
-            body["prompt_cache_key"] = json!(session_id);
-        }
-        if chat {
-            body = chat_request(
+        let cached = credentials.account_id.is_some()
+            || credentials.base_url.trim_end_matches('/') == "https://api.openai.com/v1";
+        // Keep the established cache namespace across the Piko rename.
+        let cache_key = cached.then(|| format!("harness-v1:{session_id}"));
+        let retention = (cached && credentials.account_id.is_none())
+            .then_some(self.config.prompt_cache_retention.as_deref())
+            .flatten();
+        let body = if chat {
+            let mut body = chat_request(
                 model,
                 instructions,
                 input,
@@ -102,33 +166,53 @@ impl Provider {
             if let Some(effort) = reasoning_effort {
                 body["reasoning_effort"] = json!(effort);
             }
-        }
-        if credentials.account_id.is_some()
-            || credentials.base_url.trim_end_matches('/') == "https://api.openai.com/v1"
-        {
-            body["prompt_cache_key"] = json!(format!("harness-v1:{session_id}"));
-            if credentials.account_id.is_none()
-                && let Some(retention) = &self.config.prompt_cache_retention
-            {
+            if let Some(key) = &cache_key {
+                body["prompt_cache_key"] = json!(key);
+            }
+            if let Some(retention) = retention {
                 body["prompt_cache_retention"] = json!(retention);
             }
-        }
+            serde_json::to_vec(&body)?
+        } else {
+            serde_json::to_vec(&ResponsesRequest {
+                model,
+                instructions,
+                input,
+                tools,
+                stream: true,
+                store: false,
+                parallel_tool_calls: true,
+                tool_choice: "auto",
+                max_output_tokens: credentials
+                    .account_id
+                    .is_none()
+                    .then_some(self.config.max_output_tokens),
+                include: ["reasoning.encrypted_content"],
+                reasoning: reasoning_effort.map(|effort| Reasoning { effort }),
+                prompt_cache_key: cache_key.as_deref(),
+                prompt_cache_retention: retention,
+            })?
+        };
+        let endpoint = if chat {
+            "chat/completions"
+        } else {
+            "responses"
+        };
+        let template = self
+            .client
+            .post(format!(
+                "{}/{endpoint}",
+                credentials.base_url.trim_end_matches('/')
+            ))
+            .header("Accept", "text/event-stream")
+            .header("Content-Type", "application/json")
+            .body(body);
         let mut attempt = 0;
         let mut refreshed = false;
         let response = loop {
-            let endpoint = if chat {
-                "chat/completions"
-            } else {
-                "responses"
-            };
-            let mut request = self
-                .client
-                .post(format!(
-                    "{}/{endpoint}",
-                    credentials.base_url.trim_end_matches('/')
-                ))
-                .header("Accept", "text/event-stream")
-                .json(&body);
+            let mut request = template
+                .try_clone()
+                .context("Model request body cannot be retried")?;
             if let Some(key) = &credentials.bearer {
                 request = request.bearer_auth(key);
             }
@@ -137,32 +221,51 @@ impl Provider {
                     .header("ChatGPT-Account-Id", account)
                     .header("originator", "codex_cli_rs");
             }
-            let response = tokio::select! {
+            let sent = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => bail!("Cancelled"),
-                response = request.send() => response.context("Model request failed")?,
+                response = request.send() => response,
+            };
+            let response = match sent {
+                Ok(response) => response,
+                Err(error) => {
+                    // No response bytes reached the executor. Never retry this loop
+                    // after stream consumption begins, and never replay agent tools.
+                    let transient = error.is_connect() || error.is_timeout() || error.is_request();
+                    if transient && attempt < 3 {
+                        let delay = retry_delay(None, attempt)?;
+                        attempt += 1;
+                        tokio::select! {
+                            _ = cancel.cancelled() => bail!("Cancelled"),
+                            _ = tokio::time::sleep(delay) => {}
+                        }
+                        continue;
+                    }
+                    // reqwest errors can contain credential-bearing URLs.
+                    bail!("Model connection failed; check the network and provider endpoint");
+                }
             };
             if response.status().is_success() {
                 break response;
             }
             let status = response.status();
             if status.as_u16() == 401 && credentials.account_id.is_some() && !refreshed {
-                credentials = self.auth.credentials(&self.client, true).await?;
+                drop(response);
+                credentials = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => bail!("Cancelled"),
+                    result = self.auth.credentials(&self.client, true) => result?,
+                };
                 refreshed = true;
                 continue;
             }
-            if (status.as_u16() == 429 || status.is_server_error()) && attempt < 3 {
-                let delay = response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|h| h.parse::<u64>().ok())
-                    .unwrap_or(1 << attempt)
-                    .min(30);
+            if retryable_status(status) && attempt < 3 {
+                let delay = retry_delay(response.headers().get("retry-after"), attempt)?;
+                drop(response);
                 attempt += 1;
                 tokio::select! {
                     _ = cancel.cancelled() => bail!("Cancelled"),
-                    _ = tokio::time::sleep(Duration::from_secs(delay)) => {}
+                    _ = tokio::time::sleep(delay) => {}
                 }
                 continue;
             }
@@ -172,6 +275,9 @@ impl Provider {
                 status.as_u16()
             );
         };
+        // No request is retried after headers. Release the shared encoded body
+        // now rather than retaining a full prompt for the duration of the stream.
+        drop(template);
         ensure!(
             response
                 .headers()
@@ -194,7 +300,9 @@ impl Provider {
             _ = cancel.cancelled() => bail!("Cancelled"),
             chunk = stream.next() => chunk,
         } {
-            for data in decoder.push(&chunk.context("OpenAI stream interrupted")?)? {
+            for data in decoder.push(&chunk.map_err(|_| {
+                anyhow::anyhow!("Model stream interrupted; completed tools were not retried")
+            })?)? {
                 if data == "[DONE]" {
                     if chat {
                         self.emit_usage(peer, session_id, agent_id, chat_usage.as_ref())
@@ -465,6 +573,9 @@ impl ChatStream {
 pub struct SseDecoder {
     line: Vec<u8>,
     data: String,
+    data_seen: bool,
+    first_line: bool,
+    skip_lf: bool,
     limit: usize,
 }
 
@@ -479,16 +590,32 @@ impl SseDecoder {
         Self {
             line: Vec::new(),
             data: String::new(),
+            data_seen: false,
+            first_line: true,
+            skip_lf: false,
             limit,
         }
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<String>> {
         let mut events = Vec::new();
-        // Append whole line fragments instead of growing and checking the buffer per byte.
-        // A fragment may end in the middle of UTF-8; decode only after the newline arrives.
-        for fragment in bytes.split_inclusive(|byte| *byte == b'\n') {
-            let complete = fragment.last() == Some(&b'\n');
+        // SSE permits CR, LF and CRLF. A CR completes the line immediately;
+        // its optional LF is ignored even when it arrives in the next chunk.
+        // UTF-8 (including a split initial BOM) is decoded only at line endings.
+        for mut fragment in bytes.split_inclusive(|byte| matches!(byte, b'\r' | b'\n')) {
+            if self.skip_lf {
+                self.skip_lf = false;
+                if fragment.first() == Some(&b'\n') {
+                    fragment = &fragment[1..];
+                    if fragment.is_empty() {
+                        continue;
+                    }
+                }
+            }
+            let complete = fragment
+                .last()
+                .is_some_and(|byte| matches!(byte, b'\r' | b'\n'));
             let content = if complete {
+                self.skip_lf = fragment.last() == Some(&b'\r');
                 &fragment[..fragment.len() - 1]
             } else {
                 fragment
@@ -501,18 +628,27 @@ impl SseDecoder {
             if !complete {
                 continue;
             }
-            let line = std::str::from_utf8(&self.line)
-                .context("Invalid SSE UTF-8")?
-                .trim_end_matches('\r');
+            let mut line = std::str::from_utf8(&self.line).context("Invalid SSE UTF-8")?;
+            if self.first_line {
+                line = line.strip_prefix('\u{feff}').unwrap_or(line);
+                self.first_line = false;
+            }
             if line.is_empty() {
-                if !self.data.is_empty() {
+                if self.data_seen {
                     events.push(std::mem::take(&mut self.data));
+                    self.data_seen = false;
                 }
             } else if let Some(data) = line.strip_prefix("data:") {
-                if !self.data.is_empty() {
+                if self.data_seen {
                     self.data.push('\n');
                 }
                 self.data.push_str(data.strip_prefix(' ').unwrap_or(data));
+                self.data_seen = true;
+            } else if line == "data" {
+                if self.data_seen {
+                    self.data.push('\n');
+                }
+                self.data_seen = true;
             }
             self.line.clear();
         }
@@ -564,5 +700,139 @@ mod tests {
         let mut decoder = SseDecoder::with_limit(12);
         decoder.push(b"data: hello").unwrap();
         assert!(decoder.push(b"!!").is_err());
+    }
+
+    #[test]
+    fn borrowed_responses_request_preserves_optional_fields() {
+        let input = [json!({"role":"user","content":"hello"})];
+        let tools = [json!({"type":"function","name":"read_file"})];
+        let mut request = ResponsesRequest {
+            model: "model",
+            instructions: "instructions",
+            input: &input,
+            tools: &tools,
+            stream: true,
+            store: false,
+            parallel_tool_calls: true,
+            tool_choice: "auto",
+            max_output_tokens: Some(1024),
+            include: ["reasoning.encrypted_content"],
+            reasoning: Some(Reasoning { effort: "high" }),
+            prompt_cache_key: Some("harness-v1:session"),
+            prompt_cache_retention: Some("24h"),
+        };
+        assert!(std::ptr::eq(request.input.as_ptr(), input.as_ptr()));
+        assert!(std::ptr::eq(request.tools.as_ptr(), tools.as_ptr()));
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["input"], json!(input));
+        assert_eq!(value["tools"], json!(tools));
+        assert_eq!(value["max_output_tokens"], 1024);
+        assert_eq!(value["reasoning"]["effort"], "high");
+        assert_eq!(value["prompt_cache_retention"], "24h");
+        request.max_output_tokens = None;
+        request.reasoning = None;
+        request.prompt_cache_key = None;
+        request.prompt_cache_retention = None;
+        let value = serde_json::to_value(&request).unwrap();
+        for key in [
+            "max_output_tokens",
+            "reasoning",
+            "prompt_cache_key",
+            "prompt_cache_retention",
+        ] {
+            assert!(value.get(key).is_none());
+        }
+    }
+
+    #[test]
+    fn retry_policy_preserves_server_delay_and_rejects_long_or_date_advice() {
+        for status in [408, 429, 500, 502, 503, 504] {
+            assert!(retryable_status(
+                reqwest::StatusCode::from_u16(status).unwrap()
+            ));
+        }
+        for status in [400, 401, 403, 404, 501, 505] {
+            assert!(!retryable_status(
+                reqwest::StatusCode::from_u16(status).unwrap()
+            ));
+        }
+        assert_eq!(retry_delay(None, 2).unwrap(), Duration::from_secs(4));
+        for seconds in [0, 1, 30] {
+            let header = reqwest::header::HeaderValue::from_str(&seconds.to_string()).unwrap();
+            assert_eq!(
+                retry_delay(Some(&header), 0).unwrap(),
+                Duration::from_secs(seconds)
+            );
+        }
+        for value in ["31", "90", "Wed, 21 Oct 2026 07:28:00 GMT", "invalid"] {
+            let header = reqwest::header::HeaderValue::from_str(value).unwrap();
+            assert!(retry_delay(Some(&header), 0).is_err());
+        }
+    }
+
+    #[test]
+    fn sse_accepts_bom_and_all_line_endings_at_every_chunk_boundary() {
+        let stream = "\u{feff}data: héllo\r\rdata: second\r\ndata: line\n\ndata:\r\r".as_bytes();
+        for boundary in 0..=stream.len() {
+            let mut decoder = SseDecoder::with_limit(128);
+            let mut events = decoder.push(&stream[..boundary]).unwrap();
+            events.extend(decoder.push(&stream[boundary..]).unwrap());
+            assert_eq!(events, ["héllo", "second\nline", ""], "split at {boundary}");
+        }
+        let mut decoder = SseDecoder::with_limit(128);
+        let mut events = Vec::new();
+        for byte in stream {
+            events.extend(decoder.push(std::slice::from_ref(byte)).unwrap());
+        }
+        assert_eq!(events, ["héllo", "second\nline", ""]);
+    }
+
+    #[test]
+    fn sse_cr_and_multiline_data_remain_bounded() {
+        let mut decoder = SseDecoder::with_limit(12);
+        decoder.push(b"data: hello\r").unwrap();
+        assert!(decoder.push(b"data: next\r").is_err());
+        let mut decoder = SseDecoder::with_limit(32);
+        assert_eq!(
+            decoder.push(b"data\rdata: second\r\r").unwrap(),
+            ["\nsecond"]
+        );
+    }
+
+    #[test]
+    fn retry_templates_share_the_already_encoded_body() {
+        let template = reqwest::Client::new()
+            .post("http://127.0.0.1/responses")
+            .body(vec![b'x'; 4096]);
+        let first = template.try_clone().unwrap().build().unwrap();
+        let second = template.try_clone().unwrap().build().unwrap();
+        let first = first.body().unwrap().as_bytes().unwrap();
+        let second = second.body().unwrap().as_bytes().unwrap();
+        assert_eq!(first, second);
+        assert!(std::ptr::eq(first.as_ptr(), second.as_ptr()));
+    }
+
+    #[tokio::test]
+    async fn already_cancelled_response_never_waits_for_credentials_or_network() {
+        let provider = Provider::new(&Config::default()).unwrap();
+        let (peer, _outbound) = Peer::channel(1);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let error = provider
+            .respond(
+                "model",
+                None,
+                "instructions",
+                &[],
+                &[],
+                &peer,
+                "session",
+                None,
+                &cancel,
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.to_string(), "Cancelled");
     }
 }

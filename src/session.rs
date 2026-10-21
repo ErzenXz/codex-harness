@@ -1,12 +1,12 @@
 use crate::{config::Config, workspace::Workspace};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::VecDeque, io::Write, path::PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-const MAX_SESSION_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_SESSION_BYTES: u64 = 16 * 1024 * 1024;
 
 // Count encoded JSON without allocating a second copy of the active context.
 pub(crate) fn json_bytes(value: &(impl Serialize + ?Sized)) -> Result<usize> {
@@ -75,30 +75,30 @@ impl Session {
         Ok(())
     }
 
-    pub fn context(&mut self, budget: usize) -> Vec<Value> {
-        self.trim(budget);
-        self.turns
-            .iter()
-            .flat_map(|t| t.items.iter().cloned())
-            .collect()
+    /// Project whole turns into the model window without deleting saved history.
+    pub fn context(&self, budget: usize) -> Vec<Value> {
+        self.context_with_omitted(budget).0
     }
 
-    pub fn trim(&mut self, budget: usize) {
-        // Drop only whole completed turns; never orphan a function-call output.
-        let mut bytes = 0;
+    pub fn context_with_omitted(&self, budget: usize) -> (Vec<Value>, usize) {
+        let mut bytes = 2usize; // JSON array brackets and item separators.
         let mut keep = 0;
-        // Count the retained suffix once; older discarded history needs no serialization.
         for turn in self.turns.iter().rev() {
-            let size = json_bytes(turn).unwrap_or(0);
+            let size = json_bytes(&turn.items).unwrap_or(usize::MAX);
             if size > budget.saturating_sub(bytes) {
                 break;
             }
-            bytes += size;
+            bytes = bytes.saturating_add(size);
             keep += 1;
         }
-        let dropped = self.turns.len() - keep;
-        self.turns.drain(..dropped);
-        self.dropped_turns += dropped;
+        let omitted = self.turns.len() - keep;
+        let items = self
+            .turns
+            .iter()
+            .skip(omitted)
+            .flat_map(|turn| turn.items.iter().cloned())
+            .collect();
+        (items, omitted)
     }
 
     pub fn bytes(&self) -> usize {
@@ -124,32 +124,114 @@ impl Store {
 
     pub async fn save(&self, session: &Session) -> Result<()> {
         session.validate_identifiers()?;
-        let bytes = serde_json::to_vec(session)?;
-        ensure!(
-            bytes.len() as u64 <= MAX_SESSION_BYTES,
-            "Session exceeds persistence limit"
-        );
-        let target = self.root.join(format!("{}.json", session.id));
-        let temporary = self
-            .root
-            .join(format!(".{}.{}.tmp", session.id, Uuid::new_v4()));
-        let result: Result<()> = async {
-            let mut options = tokio::fs::OpenOptions::new();
+        self.save_value(session.id, false, session, MAX_SESSION_BYTES as usize)
+            .await?;
+        // The committed conversation is durable before retiring its checkpoint.
+        match tokio::fs::remove_file(self.active_path(session.id)).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
+    /// Save only this turn; completed history is not rewritten per tool step.
+    pub async fn save_active(
+        &self,
+        session: &Session,
+        active: &[Value],
+        base_bytes: usize,
+    ) -> Result<()> {
+        session.validate_identifiers()?;
+        // Recovery may need synthetic results for unanswered calls; reserve their
+        // exact encoded size so a full session can still be loaded after a crash.
+        let recovery = json_bytes(&crate::protocol::unanswered_outputs(active))?;
+        let remaining = (MAX_SESSION_BYTES as usize)
+            .saturating_sub(base_bytes)
+            .saturating_sub(recovery)
+            .saturating_sub(32);
+        let snapshot = ActiveCheckpoint {
+            session_id: session.id,
+            base_turns: session.turns.len(),
+            items: active,
+        };
+        self.save_value(session.id, true, &snapshot, remaining)
+            .await
+    }
+
+    fn active_path(&self, id: Uuid) -> PathBuf {
+        self.root.join(format!("{id}.active.json"))
+    }
+
+    async fn save_value(
+        &self,
+        id: Uuid,
+        active: bool,
+        value: &impl Serialize,
+        limit: usize,
+    ) -> Result<()> {
+        // Encode once into a capped buffer; fail before copying an oversized payload.
+        struct Capped {
+            bytes: Vec<u8>,
+            limit: usize,
+        }
+        impl Write for Capped {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+                    return Err(std::io::Error::other(
+                        "Session reached its 16MiB persistence limit; start a new session. Saved history is preserved.",
+                    ));
+                }
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut encoded = Capped {
+            bytes: Vec::new(),
+            limit,
+        };
+        serde_json::to_writer(&mut encoded, value)?;
+        let target = if active {
+            self.active_path(id)
+        } else {
+            self.root.join(format!("{id}.json"))
+        };
+        let root = self.root.clone();
+        let temporary = root.join(format!(".{id}.{}.tmp", Uuid::new_v4()));
+        // Batch filesystem work into one blocking dispatch so streams keep running.
+        tokio::task::spawn_blocking(move || {
+            struct Temporary(PathBuf);
+            impl Drop for Temporary {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_file(&self.0);
+                }
+            }
+            let cleanup = Temporary(temporary);
+            let mut options = std::fs::OpenOptions::new();
             options.create_new(true).write(true);
             #[cfg(unix)]
-            options.mode(0o600);
-            let mut file = options.open(&temporary).await?;
-            file.write_all(&bytes).await?;
-            file.sync_all().await?;
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&cleanup.0)?;
+            file.write_all(&encoded.bytes)?;
+            file.sync_all()?;
             drop(file);
-            tokio::fs::rename(&temporary, &target).await?;
-            Ok(())
-        }
-        .await;
-        if result.is_err() {
-            let _ = tokio::fs::remove_file(&temporary).await;
-        }
-        result
+            std::fs::rename(&cleanup.0, target)?;
+            #[cfg(unix)]
+            if active || root.join(format!("{id}.active.json")).try_exists()? {
+                // Durable intent precedes host actions; a base commit must also
+                // reach disk before retiring its active recovery checkpoint.
+                std::fs::File::open(root)?.sync_all()?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("Session checkpoint writer interrupted")?
     }
 
     pub async fn load(&self, id: Uuid, workspace: &Workspace) -> Result<Session> {
@@ -168,7 +250,7 @@ impl Store {
             bytes.len() as u64 <= MAX_SESSION_BYTES,
             "Session file too large"
         );
-        let session: Session = serde_json::from_slice(&bytes)?;
+        let mut session: Session = serde_json::from_slice(&bytes)?;
         session.validate_identifiers()?;
         ensure!(
             matches!(session.version, 1 | 2) && session.id == id,
@@ -182,8 +264,62 @@ impl Store {
             ["code", "plan"].contains(&session.mode.as_str()),
             "Invalid persisted mode"
         );
+        let checkpoint = self.active_path(id);
+        match tokio::fs::File::open(checkpoint).await {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                file.take(MAX_SESSION_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .await?;
+                ensure!(
+                    bytes.len() as u64 <= MAX_SESSION_BYTES,
+                    "Active checkpoint is too large"
+                );
+                let active: LoadedCheckpoint = serde_json::from_slice(&bytes)?;
+                ensure!(
+                    active.session_id == id,
+                    "Active checkpoint belongs to another session"
+                );
+                if active.base_turns == session.turns.len() {
+                    session.turns.push_back(Turn {
+                        items: active.items,
+                    });
+                    ensure!(
+                        json_bytes(&session)? as u64 <= MAX_SESSION_BYTES,
+                        "Recovered session is too large"
+                    );
+                } else {
+                    // A crash after commit but before checkpoint cleanup leaves one stale file.
+                    ensure!(
+                        active.base_turns.checked_add(1) == Some(session.turns.len()),
+                        "Active checkpoint does not match saved history"
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        // A process can stop between durable intent and a completed tool result.
+        // Mark those calls interrupted; loading must never execute them again.
+        for turn in &mut session.turns {
+            crate::protocol::repair_calls(&mut turn.items);
+        }
         Ok(session)
     }
+}
+
+#[derive(Serialize)]
+struct ActiveCheckpoint<'a> {
+    session_id: Uuid,
+    base_turns: usize,
+    items: &'a [Value],
+}
+
+#[derive(Deserialize)]
+struct LoadedCheckpoint {
+    session_id: Uuid,
+    base_turns: usize,
+    items: Vec<Value>,
 }
 
 #[cfg(test)]
@@ -251,37 +387,185 @@ mod tests {
         );
     }
 
-    #[test]
-    fn trim_evicts_complete_turns_and_keeps_exact_budget() {
-        let first = Turn {
-            items: vec![
-                json!({"type":"function_call", "call_id":"one"}),
-                json!({"type":"function_call_output", "call_id":"one", "output":"hello"}),
-            ],
-        };
-        let last = Turn {
-            items: vec![json!({"role":"user", "content":"keep me"})],
-        };
-        let budget = json_bytes(&last).unwrap();
-        let mut session = Session {
-            version: 1,
-            id: Uuid::new_v4(),
-            cwd: PathBuf::new(),
-            model: String::new(),
-            mode: "code".into(),
-            reasoning_effort: None,
-            turns: VecDeque::from([first, last]),
-            dropped_turns: 0,
-        };
-        session.trim(budget);
-        assert_eq!(session.turns.len(), 1);
-        assert_eq!(session.dropped_turns, 1);
-        assert_eq!(session.bytes(), budget);
-        session.trim(budget);
-        assert_eq!(session.dropped_turns, 1);
-        assert_eq!(session.context(budget)[0]["content"], "keep me");
-        session.trim(0);
-        assert!(session.turns.is_empty());
-        assert_eq!(session.dropped_turns, 2);
+    #[tokio::test]
+    async fn context_projection_and_checkpoints_preserve_durable_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let mut session = Session::new(&workspace, &Config::default());
+        session.turns.push_back(Turn {
+            items: vec![json!({"role":"user","content":"old history"})],
+        });
+        session.turns.push_back(Turn {
+            items: vec![json!({"role":"user","content":"x".repeat(20000)})],
+        });
+        let (context, omitted) = session.context_with_omitted(100);
+        assert!(context.is_empty());
+        assert_eq!(omitted, 2);
+        assert_eq!(session.turns.len(), 2);
+        assert_eq!(session.dropped_turns, 0);
+        let active = vec![
+            json!({"type":"function_call","call_id":"pending","name":"write_file","arguments":"{}"}),
+        ];
+        store.save(&session).await.unwrap();
+        let base_bytes = json_bytes(&session).unwrap();
+        store
+            .save_active(&session, &active, base_bytes)
+            .await
+            .unwrap();
+        let loaded = store.load(session.id, &workspace).await.unwrap();
+        assert_eq!(loaded.turns.len(), 3);
+        assert_eq!(loaded.turns[0].items[0]["content"], "old history");
+        assert_eq!(loaded.turns[2].items.len(), 2);
+        assert_eq!(loaded.turns[2].items[1]["call_id"], "pending");
+        assert!(
+            loaded.turns[2].items[1]["output"]
+                .as_str()
+                .unwrap()
+                .contains("interrupted")
+        );
+        let mut completed = active;
+        completed.push(
+            json!({"type":"function_call_output","call_id":"pending","output":"saved result"}),
+        );
+        store
+            .save_active(&session, &completed, base_bytes)
+            .await
+            .unwrap();
+        let loaded = store.load(session.id, &workspace).await.unwrap();
+        assert_eq!(loaded.turns[2].items[1]["output"], "saved result");
+    }
+
+    #[tokio::test]
+    async fn rejected_checkpoint_capacity_preserves_prior_base_and_active_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let session = Session::new(&workspace, &Config::default());
+        store.save(&session).await.unwrap();
+        let active = vec![json!({"role":"user", "content":"durable intent"})];
+        store
+            .save_active(&session, &active, json_bytes(&session).unwrap())
+            .await
+            .unwrap();
+        let base_path = store.root.join(format!("{}.json", session.id));
+        let active_path = store.active_path(session.id);
+        let base_before = tokio::fs::read(&base_path).await.unwrap();
+        let active_before = tokio::fs::read(&active_path).await.unwrap();
+        assert!(
+            store
+                .save_active(&session, &active, MAX_SESSION_BYTES as usize)
+                .await
+                .is_err()
+        );
+        // Exercise a base-write cap failure without allocating a 16MiB fixture.
+        assert!(
+            store
+                .save_value(session.id, false, &session, 4)
+                .await
+                .is_err()
+        );
+        assert_eq!(tokio::fs::read(&base_path).await.unwrap(), base_before);
+        assert_eq!(tokio::fs::read(&active_path).await.unwrap(), active_before);
+        let recovered = store.load(session.id, &workspace).await.unwrap();
+        assert_eq!(recovered.turns.len(), 1);
+        assert_eq!(recovered.turns[0].items, active);
+        assert_eq!(std::fs::read_dir(&store.root).unwrap().count(), 2);
+    }
+
+    #[tokio::test]
+    async fn committed_history_ignores_stale_checkpoint_without_duplicate_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let mut session = Session::new(&workspace, &Config::default());
+        store.save(&session).await.unwrap();
+        let pending = vec![json!({"role":"user", "content":"stale checkpoint"})];
+        store
+            .save_active(&session, &pending, json_bytes(&session).unwrap())
+            .await
+            .unwrap();
+        let stale = tokio::fs::read(store.active_path(session.id))
+            .await
+            .unwrap();
+        let completed = vec![json!({"role":"assistant", "content":"committed answer"})];
+        session.turns.push_back(Turn {
+            items: completed.clone(),
+        });
+        store.save(&session).await.unwrap();
+        assert!(!store.active_path(session.id).exists());
+        // Recreate the crash window after base rename but before active cleanup.
+        tokio::fs::write(store.active_path(session.id), stale)
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let recovered = store.load(session.id, &workspace).await.unwrap();
+            assert_eq!(recovered.turns.len(), 1);
+            assert_eq!(recovered.turns[0].items, completed);
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpoint_identity_and_history_mismatches_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let session = Session::new(&workspace, &Config::default());
+        store.save(&session).await.unwrap();
+        for checkpoint in [
+            json!({"session_id":Uuid::new_v4(), "base_turns":0, "items":[]}),
+            json!({"session_id":session.id, "base_turns":1, "items":[]}),
+            json!({"session_id":session.id, "base_turns":usize::MAX, "items":[]}),
+        ] {
+            tokio::fs::write(store.active_path(session.id), checkpoint.to_string())
+                .await
+                .unwrap();
+            assert!(store.load(session.id, &workspace).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn active_checkpoint_is_private_and_failed_replacement_cleans_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::new(dir.path()).await.unwrap();
+        let store = Store::new(dir.path().join("sessions")).await.unwrap();
+        let session = Session::new(&workspace, &Config::default());
+        let active = vec![json!({"role":"user", "content":"private intent"})];
+        store
+            .save_active(&session, &active, json_bytes(&session).unwrap())
+            .await
+            .unwrap();
+        let active_path = store.active_path(session.id);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&active_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(&store.root).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        tokio::fs::remove_file(&active_path).await.unwrap();
+        tokio::fs::create_dir(&active_path).await.unwrap();
+        assert!(
+            store
+                .save_active(&session, &active, json_bytes(&session).unwrap())
+                .await
+                .is_err()
+        );
+        assert!(active_path.is_dir());
+        let entries: Vec<_> = std::fs::read_dir(&store.root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0], active_path.file_name().unwrap());
     }
 }

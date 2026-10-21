@@ -62,7 +62,9 @@ bounded history, files and tool output. No telemetry, daemon, updater or bundled
 browser/model.
 
 Streaming, file/search tools, MCP, subagents, background jobs, persistent sessions,
-cancellation and permission controls are built in.
+cancellation and permission controls are built in. Precise edits, bounded file
+pages and recoverable tool checkpoints help keep work predictable.
+[Design and recovery →](https://github.com/ErzenXz/piko/blob/main/docs/design.md)
 
 For the lowest launch overhead, run `piko --print-binary-path` and use
 that executable directly in your ACP app. On macOS/Linux the standard launcher

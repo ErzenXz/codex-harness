@@ -13,8 +13,9 @@ metadata limit. It adds no runtime dependencies or background polling.
 
 Version 0.2 removes repeated streamed-argument copies, appends SSE line fragments
 in bulk, moves completed output, counts JSON without duplicate buffers and trims
-history without cloning the result. Built-in grep reuses one bounded file buffer.
-The size-optimized release profile retains thin LTO and one codegen unit.
+the old rolling history without cloning the result. Version 0.5 preserves durable
+history separately from its model-context projection. Built-in grep reuses one bounded file buffer.
+Version 0.5 uses size optimization (`z`), full LTO and one codegen unit.
 `--help` and `--version` return before creating an async runtime or user state.
 
 The npm launcher installs one exact-version platform binary, with no postinstall
@@ -22,6 +23,12 @@ script or network access at launch. On macOS/Linux it calls Node's `execve` when
 available, replacing Node with Rust and freeing the launcher memory. On Windows
 Node remains as a forwarding process. Use the path from `--print-binary-path`
 directly in your ACP client to eliminate launcher overhead on every platform.
+
+Version 0.5 borrows Responses input during serialization, encodes it once and
+shares request bytes through retries. Those bytes are freed after successful
+headers, before waiting for the response stream. Durable active-turn checkpoints
+encode only current work; atomic file operations run in one blocking dispatch.
+Extra durability checks have a cost, particularly for very short mock responses.
 
 ## Reproduce
 
@@ -33,13 +40,15 @@ PIKO_BIN=target/release/piko python3 tests/benchmark.py --agents 10
 On Windows set `PIKO_BIN` to the `.exe` path in your shell first. The benchmark
 uses temporary state/workspaces and loopback mock SSE; no credentials or paid
 model calls. It reports native binary bytes, ACP startup, ten simultaneous turns,
-process RSS (Linux/macOS) and search over 10,000 files. Startup includes fixture
+process RSS (Linux/macOS) and search over 10,000 files. The default is 256 turns;
+`--agents 10` selects the smaller fixture. Startup includes fixture
 setup; first-launch OS verification and filesystem cache materially affect it.
 
 Results do not establish a competitor ranking, model intelligence, real provider
 throughput or a cache hit rate. RSS varies with platform, workload, active tools,
 conversation length and configured concurrency. Context bytes bound serialized
-history; they do not cap total process RSS. Read the runtime limits in the
+model input; durable history has a separate 16 MiB/session cap. Neither caps total
+process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
 ## Version 0.4.0 measurement (2026-10-21)

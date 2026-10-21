@@ -710,6 +710,90 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             replayed = [u["params"]["update"]["sessionUpdate"] for u in h.updates if u.get("method")=="session/update"]
             self.assertEqual(replayed.count("tool_call"),2)
 
+    async def test_invalid_tool_batches_never_request_permission_or_mutate(self):
+        invalid = [
+            call("write_file", {"path": "second.txt", "content": "must not exist"}),
+            {"type": "function_call", "name": "read_file", "arguments": "{}"},
+            {"type": "function_call", "call_id": "bad-name", "arguments": "{}"},
+        ]
+        for bad_call in invalid:
+            with self.subTest(call=bad_call):
+                async def model(_):
+                    return response([
+                        call("write_file", {"path": "first.txt", "content": "must not exist"}),
+                        bad_call,
+                    ])
+                async with Harness(model) as h:
+                    await h.initialize()
+                    session = await h.session()
+                    result = await h.prompt(session)
+                    self.assertIn("error", result)
+                    self.assertFalse(h.permissions, "Validate the whole batch before asking to write")
+                    self.assertEqual(list(h.workspace.iterdir()), [])
+                    saved = json.loads((h.root / "state" / "sessions" / f"{session}.json").read_text())
+                    self.assertFalse(any(
+                        item.get("type") == "function_call"
+                        for turn in saved["turns"] for item in turn["items"]
+                    ), "Rejected batches must not enter persisted model history")
+
+    async def test_large_file_paging_preserves_continuation_metadata_and_lines(self):
+        rows = [f'row-{i} "quoted" \\ café ' + "x" * 35 for i in range(40)]
+        expected = [f"{i + 2}: {text}" for i, text in enumerate(rows)]
+        observed, offsets = [], []
+
+        async def model(body):
+            outputs = [item for item in body["input"] if item.get("type") == "function_call_output"]
+            offset = 2  # The first line is over 1 MiB; later lines must remain reachable.
+            if outputs:
+                raw = outputs[-1]["output"]
+                self.assertLessEqual(len(raw.encode()), 1024)
+                page = json.loads(raw)  # Escaping/content must never truncate JSON metadata.
+                self.assertNotIn("error", page)
+                self.assertFalse(page["line_truncated"])
+                observed.extend(page["content"].splitlines())
+                offset = page["next_offset_line"]
+                self.assertEqual(page["truncated"], offset is not None)
+                if offset is None:
+                    self.assertEqual(observed, expected, "Paging must not omit or repeat lines")
+                    return final()
+                self.assertEqual(offset, 2 + len(observed))
+            self.assertNotIn(offset, offsets, "Continuation must advance")
+            offsets.append(offset)
+            return response([call("read_file", {"path": "large.txt", "offset_line": offset, "limit": 1000}, f"page-{offset}")])
+
+        async with Harness(model, extra="tool_output_bytes = 1024\n") as h:
+            (h.workspace / "large.txt").write_bytes(b"a" * (1100 * 1024) + b"\n" + ("\n".join(rows) + "\n").encode())
+            await h.initialize()
+            result = await h.prompt(await h.session())
+            self.assertNotIn("error", result)
+            self.assertEqual(observed, expected)
+            self.assertGreater(len(offsets), 1)
+            self.assertFalse(h.permissions)
+
+    async def test_non_utf8_and_overlapping_exact_edits_are_rejected_without_writes(self):
+        for original, old, error in [
+            (b"before\xffafter", "before", "UTF-8"),
+            (b"aaa", "aa", "ambiguous"),
+            ("ééé".encode(), "éé", "ambiguous"),
+        ]:
+            with self.subTest(original=original):
+                async def model(body):
+                    outputs = [item for item in body["input"] if item.get("type") == "function_call_output"]
+                    if outputs:
+                        result = json.loads(outputs[-1]["output"])
+                        self.assertIn(error, result["error"])
+                        return final()
+                    return response([call("edit_file", {"path": "original.txt", "old_text": old, "new_text": "replacement"})])
+                async with Harness(model) as h:
+                    path = h.workspace / "original.txt"
+                    path.write_bytes(original)
+                    await h.initialize()
+                    result = await h.prompt(await h.session())
+                    self.assertNotIn("error", result)
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertFalse(h.permissions, "Unsafe edits should fail before approval")
+                    self.assertEqual(len(h.requests), 2, "The model must receive a recoverable tool error")
+
     async def test_idle_cancel_preserves_independent_background_work(self):
         async def model(body):
             if any(i.get("type")=="function_call_output" for i in body["input"]): return final()

@@ -1,3 +1,22 @@
+# 0.5.0
+
+- Compact capability-aware prompts: project instruction precedence, evidence-based
+  changes, bounded searches, edit recovery and relevant verification.
+- Stream large UTF-8 files in bounded numbered pages with intact continuation
+  metadata. Reject ambiguous overlapping edits and invalid encodings; recheck
+  cancellation, stale contents and paths before atomic replacement.
+- Validate whole tool-call batches before executing any action.
+- Preserve saved history independently of the model window. Atomically checkpoint
+  user intent, pending calls and tool results; repair interrupted calls on reload
+  without automatically executing them. Cap storage at 16 MiB per session.
+- Retry transient pre-stream provider failures within one cancellable deadline;
+  honor server backoff and never replay a started stream or completed tool action.
+  Support SSE BOM, CR, LF and split CRLF framing.
+- Borrow and encode Responses input once, share retry bytes, release request buffers
+  before streaming, and batch checkpoint disk operations off the event loop.
+- Use full LTO and size optimization; add durability, paging and retry regressions
+  to all six native CI targets. No new runtime dependencies.
+
 # 0.4.1
 
 - Record measured Piko 0.4.0 binary size, startup and memory in the README, with

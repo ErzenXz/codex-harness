@@ -63,6 +63,7 @@ impl Jobs {
                 bail!("Background task limit reached; wait for or cancel a task");
             }
         }
+        anyhow::ensure!(!cancel.is_cancelled(), "Task cancelled before starting");
         let job = Arc::new(Job {
             id: Uuid::new_v4().to_string(),
             kind: kind.into(),

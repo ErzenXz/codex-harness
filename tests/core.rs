@@ -329,7 +329,8 @@ fn oversized_completed_turns_are_evicted_and_refusals_are_visible() {
 }
 
 #[tokio::test]
-async fn completed_context_can_evict_every_turn_and_hardlinks_are_denied() {
+async fn context_projection_can_omit_every_turn_without_deleting_history_and_hardlinks_are_denied()
+{
     let dir = tempdir().unwrap();
     let workspace = Workspace::new(dir.path()).await.unwrap();
     let mut session = Session::new(&workspace, &Config::default());
@@ -337,7 +338,8 @@ async fn completed_context_can_evict_every_turn_and_hardlinks_are_denied() {
         items: vec![json!({"role":"user","content":"x".repeat(20000)})],
     });
     assert!(session.context(100).is_empty());
-    assert_eq!(session.dropped_turns, 1);
+    assert_eq!(session.dropped_turns, 0);
+    assert_eq!(session.turns.len(), 1);
     #[cfg(unix)]
     {
         let secret = dir.path().join(".env");
@@ -428,12 +430,13 @@ async fn persistence_is_atomic_workspace_scoped_and_private() {
     }
     let two_turn_budget = session.bytes() / 2;
     let context = session.context(two_turn_budget);
-    assert_eq!(session.turns.len(), 2);
-    assert_eq!(session.dropped_turns, 2);
+    assert_eq!(session.turns.len(), 4);
+    assert_eq!(session.dropped_turns, 0);
     assert_eq!(context.len(), 2);
     store.save(&session).await.unwrap();
     let loaded = store.load(session.id, &workspace).await.unwrap();
-    assert_eq!(loaded.dropped_turns, 2);
+    assert_eq!(loaded.dropped_turns, 0);
+    assert_eq!(loaded.turns.len(), 4);
     let other = tempdir().unwrap();
     assert!(
         store
@@ -724,4 +727,43 @@ async fn shell_output_timeout_and_environment_are_bounded() {
         .unwrap();
     assert_eq!(output["truncated"], true);
     assert!(output["output"].as_str().unwrap().len() <= 1024);
+}
+
+#[tokio::test]
+async fn already_cancelled_shell_never_starts_or_consumes_a_job_slot() {
+    let root = tempdir().unwrap();
+    let jobs = Jobs::new(1, 1024);
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let (peer, _updates) = Peer::channel(8);
+    assert!(
+        jobs.shell(
+            root.path(),
+            "echo unexpected>should-not-exist",
+            1,
+            false,
+            None,
+            &cancel,
+            &peer,
+            "cancelled-test"
+        )
+        .await
+        .is_err()
+    );
+    assert!(!root.path().join("should-not-exist").exists());
+    assert!(jobs.list().await.is_empty());
+}
+
+#[test]
+fn interruption_repair_matches_reused_call_ids_in_order() {
+    let mut items = vec![
+        json!({"type":"function_call","call_id":"reused"}),
+        json!({"type":"function_call_output","call_id":"reused","output":"first result"}),
+        json!({"type":"function_call","call_id":"reused"}),
+    ];
+    repair_calls(&mut items);
+    assert_eq!(items.len(), 4);
+    assert!(items[3]["output"].as_str().unwrap().contains("interrupted"));
+    repair_calls(&mut items);
+    assert_eq!(items.len(), 4);
 }
