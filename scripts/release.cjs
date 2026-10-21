@@ -26,10 +26,19 @@ function preflight() {
     run('python3', ['scripts/verify-archive.py', archiveFile(platform), nativeFile(platform), platform]);
   }
 }
-async function published(name) {
-  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${cli.version}`, { signal: AbortSignal.timeout(15000) });
+async function published(name, timeoutMs = 15000) {
+  const url = new URL(`https://registry.npmjs.org/${encodeURIComponent(name)}/${cli.version}`);
+  url.searchParams.set('visibility', crypto.randomUUID());
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs), cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+  });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Registry check failed: ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`Registry check failed: ${response.status}`);
+    error.retryable = response.status === 429 || response.status >= 500;
+    throw error;
+  }
   const manifest = await response.json();
   if (manifest.name !== name || manifest.version !== cli.version) throw new Error('Registry package name/version mismatch');
   if (!manifest.dist || typeof manifest.dist.integrity !== 'string' || typeof manifest.dist.tarball !== 'string') throw new Error(`Registry integrity missing for ${name}`);
@@ -40,6 +49,32 @@ function integrityMatches(bytes, integrity) {
   if (!values.length) throw new Error('Registry tarball must have SHA-512 integrity');
   const actual = crypto.createHash('sha512').update(bytes).digest('base64');
   return values.some((value) => value.slice(7) === actual);
+}
+async function waitForPublished(name, file, timeoutMs = 180000) {
+  const deadline = Date.now() + timeoutMs;
+  const bytes = fs.readFileSync(file);
+  let waiting = false;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const manifest = await published(name, Math.max(1, Math.min(15000, deadline - Date.now())));
+      if (manifest) {
+        if (!integrityMatches(bytes, manifest.dist.integrity)) throw new Error(`Published package integrity differs: ${name}`);
+        return manifest;
+      }
+    } catch (error) {
+      // Retry visibility/read failures only. A name/version/integrity mismatch is fatal.
+      if (!error.retryable && !['TimeoutError', 'AbortError', 'TypeError'].includes(error.name)) throw error;
+      lastError = error;
+    }
+    if (!waiting) {
+      console.log(`Waiting up to ${Math.ceil(timeoutMs / 1000)}s for npm visibility: ${name}@${cli.version}`);
+      waiting = true;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(3000, remaining)));
+  }
+  throw new Error(`npm visibility timed out for ${name}@${cli.version}; do not republish blindly. Resume after registry propagation.${lastError ? ` Last read error: ${lastError.message}` : ''}`);
 }
 async function recoverPublished(manifest, file, platform) {
   if (integrityMatches(fs.readFileSync(file), manifest.dist.integrity)) return;
@@ -128,14 +163,13 @@ async function main() {
     const rootManifest = await published(cli.name);
     if (rootManifest) await recoverPublished(rootManifest, tarball, 'cli');
     for (const platform of platforms) {
-      const name = `@erzenx/codex-harness-${platform}`;
       if (!manifests.get(platform)) run('pnpm', ['publish', nativeFile(platform), '--access', 'public', '--provenance', '--ignore-scripts', '--no-git-checks']);
-      const manifest = await published(name);
-      if (!manifest || !integrityMatches(fs.readFileSync(nativeFile(platform)), manifest.dist.integrity)) throw new Error(`Native package unavailable or differs: ${name}`);
     }
+    // Publishing is attempted once per package. Metadata propagation can lag the
+    // successful write; wait for every native before exposing the launcher.
+    await Promise.all(platforms.map((platform) => waitForPublished(`@erzenx/codex-harness-${platform}`, nativeFile(platform))));
     if (!rootManifest) run('pnpm', ['publish', tarball, '--access', 'public', '--provenance', '--ignore-scripts', '--no-git-checks']);
-    const manifest = await published(cli.name);
-    if (!manifest || !integrityMatches(fs.readFileSync(tarball), manifest.dist.integrity)) throw new Error('Launcher package unavailable or differs after publish');
+    await waitForPublished(cli.name, tarball);
   } else {
     // An independently resumed GitHub step must use the actual npm bytes.
     for (const platform of platforms) {
