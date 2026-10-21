@@ -110,28 +110,56 @@ function githubRelease() {
   run('python3', ['scripts/verify-package.py', tarball, 'cli']);
   const files = [...platforms.flatMap((platform) => [nativeFile(platform), archiveFile(platform)]), tarball].sort();
   const sumsFile = path.join(dir, 'SHA256SUMS');
-  fs.writeFileSync(sumsFile, files.map((file) => `${checksum(file)}  ${path.basename(file)}\n`).join(''));
-  files.push(sumsFile);
+  const writeSums = () => fs.writeFileSync(sumsFile, files.map((file) => `${checksum(file)}  ${path.basename(file)}\n`).join(''));
   const existing = spawnSync('gh', ['api', `repos/ErzenXz/codex-harness/releases/tags/${tag}`], { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
   if (existing.status !== 0) {
     if (!/HTTP 404/.test(existing.stderr || '')) throw new Error(`Cannot inspect GitHub release: ${existing.stderr}`);
-    run('gh', ['release', 'create', tag, ...files, '--verify-tag', '--title', `Codex Harness ${cli.version}`, '--notes-file', 'CHANGELOG.md']);
+    writeSums();
+    run('gh', ['release', 'create', tag, ...files, sumsFile, '--verify-tag', '--title', `Codex Harness ${cli.version}`, '--notes-file', 'CHANGELOG.md']);
     return;
   }
   const release = JSON.parse(existing.stdout);
   if (release.tag_name !== tag) throw new Error('GitHub release tag mismatch');
-  const expected = new Map(files.map((file) => [path.basename(file), file]));
-  const missing = new Map(expected);
+  const expected = new Map([...files, sumsFile].map((file) => [path.basename(file), file]));
+  const assets = new Map();
   for (const asset of release.assets) {
-    const file = expected.get(asset.name);
-    if (!file || !missing.has(asset.name)) throw new Error(`Unexpected/duplicate GitHub release asset: ${asset.name}`);
-    let digest = asset.digest;
-    if (!digest) {
-      if (!Number.isSafeInteger(asset.id) || asset.size > 40 * 1024 * 1024) throw new Error('Invalid existing release asset');
-      const data = spawnSync('gh', ['api', `repos/ErzenXz/codex-harness/releases/assets/${asset.id}`, '-H', 'Accept: application/octet-stream'], { maxBuffer: 40 * 1024 * 1024 });
-      if (data.status !== 0) throw new Error(`Cannot verify GitHub asset: ${asset.name}`);
-      digest = `sha256:${crypto.createHash('sha256').update(data.stdout).digest('hex')}`;
+    if (!expected.has(asset.name) || assets.has(asset.name)) throw new Error(`Unexpected/duplicate GitHub release asset: ${asset.name}`);
+    if (!Number.isSafeInteger(asset.id) || !Number.isSafeInteger(asset.size) || asset.size < 0 || asset.size > 40 * 1024 * 1024) throw new Error('Invalid existing release asset');
+    if (asset.digest && !/^sha256:[0-9a-f]{64}$/.test(asset.digest)) throw new Error(`Invalid GitHub asset digest: ${asset.name}`);
+    assets.set(asset.name, asset);
+  }
+  function readAsset(asset) {
+    const data = spawnSync('gh', ['api', `repos/ErzenXz/codex-harness/releases/assets/${asset.id}`, '-H', 'Accept: application/octet-stream', '--allow-escape-sequences'], { maxBuffer: 40 * 1024 * 1024 });
+    if (data.status !== 0 || data.stdout.length !== asset.size) throw new Error(`Cannot verify GitHub asset: ${asset.name}`);
+    const digest = `sha256:${crypto.createHash('sha256').update(data.stdout).digest('hex')}`;
+    if (asset.digest && digest !== asset.digest) throw new Error(`GitHub asset download integrity mismatch: ${asset.name}`);
+    return { bytes: data.stdout, digest };
+  }
+  // Old releases may have archives created before deterministic metadata. Keep
+  // their immutable bytes only after checking their SHA and exact npm payload.
+  for (const platform of platforms) {
+    const file = archiveFile(platform);
+    const asset = assets.get(path.basename(file));
+    if (!asset || asset.digest === `sha256:${checksum(file)}`) continue;
+    const data = readAsset(asset);
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-github-'));
+    try {
+      const candidate = path.join(temp, path.basename(file));
+      fs.writeFileSync(candidate, data.bytes);
+      run('python3', ['scripts/verify-archive.py', candidate, nativeFile(platform), platform]);
+      fs.copyFileSync(candidate, file);
+      asset.digest = data.digest;
+      console.log(`Preserved verified existing standalone archive: ${asset.name}`);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
     }
+  }
+  // Checksums must describe recovered old archive bytes, not the fresh rebuild.
+  writeSums();
+  const missing = new Map(expected);
+  for (const asset of assets.values()) {
+    const file = expected.get(asset.name);
+    const digest = asset.digest || readAsset(asset).digest;
     if (digest !== `sha256:${checksum(file)}`) throw new Error(`Existing GitHub asset differs; refusing to overwrite ${asset.name}`);
     missing.delete(asset.name);
   }
