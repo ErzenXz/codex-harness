@@ -31,7 +31,10 @@ if (args.length === 1 && args[0] === '--print-binary-path') {
 } else {
   const { spawn } = require('node:child_process');
   const child = spawn(binary, args, { stdio: 'inherit', windowsHide: true });
-  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  // Windows consoles already deliver Ctrl+C to the native child. Sending
+  // child.kill('SIGINT') there would forcibly terminate it before cleanup.
+  if (process.platform === 'win32') process.on('SIGINT', () => {});
+  const signals = process.platform === 'win32' ? ['SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
   for (const signal of signals) process.on(signal, () => child.kill(signal));
   child.on('error', (error) => fail(`Cannot launch native binary: ${error.message}`));
   child.on('exit', (code, signal) => {

@@ -31,7 +31,7 @@ function stage({ out, platform, binary }) {
   fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
   for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(root, name), path.join(out, name));
   if (platform === 'cli') {
-    fs.copyFileSync(path.join(root, 'npm/cli/bin/codex-harness.cjs'), path.join(out, 'bin/codex-harness.cjs'));
+    fs.writeFileSync(path.join(out, 'bin/codex-harness.cjs'), fs.readFileSync(path.join(root, 'npm/cli/bin/codex-harness.cjs'), 'utf8').replace(/\r\n/g, '\n'));
     fs.chmodSync(path.join(out, 'bin/codex-harness.cjs'), 0o755);
     fs.copyFileSync(path.join(root, 'README.md'), path.join(out, 'README.md'));
   } else {

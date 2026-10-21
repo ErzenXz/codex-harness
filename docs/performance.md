@@ -37,4 +37,34 @@ conversation length and configured concurrency. Context bytes bound serialized
 history; they do not cap total process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
-Measurements for this release are recorded after validation below.
+## macOS arm64 measurements (2026-10-21)
+
+Same Mac, Rust 1.99, baseline `6f55af7` versus 0.2.0. Byte counts refer to
+stripped native release binaries. Startup uses 31 fresh `--version` processes;
+streamed-argument timings are the median of nine local runs.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Native binary bytes | 4,803,360 | 4,475,120 |
+| Version startup p50 | 6.01 ms | 5.82 ms |
+| Version startup p95 | 10.74 ms | 9.65 ms |
+| Append 8,000 × 32-byte argument deltas | 58.24 ms | 2.02 ms |
+| Idle sampled RSS | 3.80 MiB | 4.02 MiB |
+| RSS after ten synthetic turns | 6.84 MiB | 6.58 MiB |
+| Ten concurrent mock turns, wall time | 73 ms | 67 ms |
+
+The binary is 6.8% smaller. The isolated streamed-argument hot path is about 29×
+faster for this 256,000-byte fixture; this is **not a 29× end-to-end agent speedup**.
+The ten-session figures are one synthetic run per binary with 50 ms mock model
+latency, small prompts and filesystem persistence. The idle RSS difference shows
+that lower allocation churn does not guarantee lower RSS in every phase.
+
+Reproduce the stream hot path with:
+
+```sh
+cargo run --release --locked --example stream_benchmark
+```
+
+`--version` startup and file-search results are especially sensitive to OS binary
+verification and filesystem caches. Compare repeated runs on your target workload
+instead of treating small timing differences as guarantees.

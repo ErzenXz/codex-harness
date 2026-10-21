@@ -27,6 +27,8 @@ stay in runner temporary directories; local validation should also use scratch.
 
 1. Keep the Rust, development and `npm/cli/package.json` versions aligned,
    including every optional dependency pin. Update the changelog and measurements.
+   After changing Cargo.lock, refresh bundled attributions offline with
+   `python3 scripts/licenses.py`.
 2. Verify all six CI jobs, then tag the tested commit `vVERSION` and push the tag.
 3. The release workflow repeats verification, checks archive names/manifests,
    executable signatures and a strict five-file package allowlist, and publishes
