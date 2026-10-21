@@ -399,6 +399,32 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(h.permissions)
             self.assertFalse((h.workspace/"bad.txt").exists())
 
+    async def test_codeink_model_selection_before_each_prompt(self):
+        async def model(_): return final("connected")
+        async with Harness(model) as h:
+            await h.initialize()
+            created = await h.rpc("session/new", {"cwd": str(h.workspace), "mcpServers": []})
+            session = created["result"]["sessionId"]
+            selected = created["result"]["models"]["availableModels"][0]["modelId"]
+            # CodeInk selects the advertised model before every prompt, even
+            # when it is already current. This must be an idempotent operation.
+            for _ in range(2):
+                selection = await h.rpc("session/set_model", {"sessionId": session, "modelId": selected})
+                self.assertEqual(selection.get("result"), {}, selection)
+                result = await h.prompt(session, "test connection")
+                self.assertEqual(result["result"]["stopReason"], "end_turn", result)
+            invalid = await h.rpc("session/set_model", {"sessionId": session, "modelId": "unadvertised"})
+            self.assertIn("not available", invalid["error"]["message"])
+            missing = await h.rpc("session/set_model", {"sessionId": session})
+            self.assertIn("error", missing)
+            await h.rpc("_harness/session/unload", {"sessionId": session})
+            loaded = await h.rpc("session/load", {"cwd": str(h.workspace), "sessionId": session, "mcpServers": []})
+            self.assertEqual(loaded["result"]["models"]["currentModelId"], selected)
+            self.assertEqual((await h.rpc("session/set_model", {"sessionId": session, "modelId": selected}))["result"], {})
+            self.assertEqual((await h.prompt(session))["result"]["stopReason"], "end_turn")
+            self.assertEqual(len(h.requests), 3)
+            self.assertTrue(all(request["model"] == selected for request in h.requests))
+
     async def test_silent_idle_and_malformed_messages_do_not_break_acp(self):
         async def model(_): return final()
         async with Harness(model) as h:

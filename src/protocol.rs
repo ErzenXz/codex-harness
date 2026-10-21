@@ -237,6 +237,22 @@ impl Server {
                 slot.cancel.lock().await.cancel();
                 Ok(json!({}))
             }
+            "session/set_model" => {
+                let slot = self.slot(&params).await?;
+                let _permit = slot
+                    .busy
+                    .clone()
+                    .try_acquire_owned()
+                    .context("Session is busy")?;
+                let model = string(&params, "modelId")?;
+                // Each session advertises its configured model only. ACP clients
+                // may reselect that model before every prompt, including reloads.
+                ensure!(
+                    model == slot.session.lock().await.model,
+                    "Model is not available in this session; use its advertised model or change the trusted configuration"
+                );
+                Ok(json!({}))
+            }
             "session/set_mode" => {
                 let slot = self.slot(&params).await?;
                 let _permit = slot

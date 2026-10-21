@@ -46,7 +46,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.0 --locked
+cargo install --git https://github.com/ErzenXz/codex-harness --tag v0.2.1 --locked
 ```
 
 ## ACP launch contract
@@ -311,8 +311,13 @@ or shut down the process. SIGINT/SIGTERM trigger orderly Unix shutdown.
 ## Protocol surface
 
 ACP: `initialize`, `authenticate`, `session/new`, `session/load`,
-`session/prompt`, `session/cancel`, `session/set_mode`; notifications via
+`session/prompt`, `session/cancel`, `session/set_mode`, `session/set_model`; notifications via
 `session/update`; approvals via `session/request_permission`.
+
+Each session advertises its configured model. Legacy ACP model selection accepts
+that model idempotently, including before every prompt; other model IDs are
+rejected. Choose a different configured model through a trusted config file or
+`OPENAI_MODEL`, then create a new session.
 
 Extensions (all stdio JSON-RPC, no extra listener):
 

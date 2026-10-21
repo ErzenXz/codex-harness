@@ -1,3 +1,11 @@
+# 0.2.1
+
+- Fix CodeInk and other ACP clients selecting the advertised model before a
+  prompt. `session/set_model` now accepts repeated selection of the session's
+  configured model instead of returning "Method not found".
+- Reject unavailable models without changing the session; cover selection,
+  consecutive prompts and session reload with an ACP regression test.
+
 # 0.2.0
 
 - One-command npm/pnpm installation with only the matching native Rust binary.
