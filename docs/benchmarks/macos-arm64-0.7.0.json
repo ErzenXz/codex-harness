@@ -1,0 +1,282 @@
+{
+  "date": "2026-10-22",
+  "method": "Same macOS arm64 machine; both binaries warmed with five-prompt fixtures, then three alternating 256-prompt runs per binary. No concurrent local builds, tests or desktop automation. Desktop disabled: measures normal coding-session overhead, excluding graphics framework use and model inference.",
+  "runs": [
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302528,
+      "binary_sha256": "7a0b5b8a3c737b3808a85b2e06751c8ba0e977d25638eadea3a283e133462a58",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 9.43,
+      "create_sessions_seconds": 0.618,
+      "complete_prompts_seconds": 0.71,
+      "synthetic_prompts_per_second": 360.5,
+      "prompt_latency_ms": {
+        "p50": 653.16,
+        "p95": 697.42
+      },
+      "peak_simultaneous_mock_requests": 226,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3952
+        },
+        "loaded": {
+          "VmRSS": 10192
+        },
+        "after_prompts": {
+          "VmRSS": 29120
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          372.97,
+          336.81,
+          268.84,
+          332.11,
+          368.09
+        ],
+        "median": 336.81,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.6.2",
+      "iteration": 0
+    },
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3352832,
+      "binary_sha256": "7a6f7b086bb52a5e4e8c715349869fd810556e02c1e3a89eaa223c31090458bf",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 9.96,
+      "create_sessions_seconds": 0.656,
+      "complete_prompts_seconds": 0.703,
+      "synthetic_prompts_per_second": 364.2,
+      "prompt_latency_ms": {
+        "p50": 696.17,
+        "p95": 697.72
+      },
+      "peak_simultaneous_mock_requests": 249,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3952
+        },
+        "loaded": {
+          "VmRSS": 9984
+        },
+        "after_prompts": {
+          "VmRSS": 28576
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          363.13,
+          334.16,
+          325.31,
+          229.62,
+          330.27
+        ],
+        "median": 330.27,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.7.0",
+      "iteration": 0
+    },
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302528,
+      "binary_sha256": "7a0b5b8a3c737b3808a85b2e06751c8ba0e977d25638eadea3a283e133462a58",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 6.27,
+      "create_sessions_seconds": 0.633,
+      "complete_prompts_seconds": 0.672,
+      "synthetic_prompts_per_second": 380.8,
+      "prompt_latency_ms": {
+        "p50": 666.76,
+        "p95": 669.54
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3952
+        },
+        "loaded": {
+          "VmRSS": 10048
+        },
+        "after_prompts": {
+          "VmRSS": 31264
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          328.78,
+          316.02,
+          329.87,
+          381.0,
+          314.41
+        ],
+        "median": 328.78,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.6.2",
+      "iteration": 1
+    },
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3352832,
+      "binary_sha256": "7a6f7b086bb52a5e4e8c715349869fd810556e02c1e3a89eaa223c31090458bf",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 6.56,
+      "create_sessions_seconds": 0.629,
+      "complete_prompts_seconds": 0.691,
+      "synthetic_prompts_per_second": 370.4,
+      "prompt_latency_ms": {
+        "p50": 686.45,
+        "p95": 688.43
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3920
+        },
+        "loaded": {
+          "VmRSS": 10048
+        },
+        "after_prompts": {
+          "VmRSS": 29712
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          313.88,
+          226.84,
+          270.47,
+          286.66,
+          265.21
+        ],
+        "median": 270.47,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.7.0",
+      "iteration": 1
+    },
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302528,
+      "binary_sha256": "7a0b5b8a3c737b3808a85b2e06751c8ba0e977d25638eadea3a283e133462a58",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 6.51,
+      "create_sessions_seconds": 0.592,
+      "complete_prompts_seconds": 0.66,
+      "synthetic_prompts_per_second": 387.7,
+      "prompt_latency_ms": {
+        "p50": 645.76,
+        "p95": 647.98
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3952
+        },
+        "loaded": {
+          "VmRSS": 10000
+        },
+        "after_prompts": {
+          "VmRSS": 30880
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          347.81,
+          316.0,
+          224.04,
+          274.14,
+          313.1
+        ],
+        "median": 313.1,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.6.2",
+      "iteration": 2
+    },
+    {
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3352832,
+      "binary_sha256": "7a6f7b086bb52a5e4e8c715349869fd810556e02c1e3a89eaa223c31090458bf",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 6.55,
+      "create_sessions_seconds": 0.657,
+      "complete_prompts_seconds": 0.666,
+      "synthetic_prompts_per_second": 384.4,
+      "prompt_latency_ms": {
+        "p50": 659.81,
+        "p95": 662.15
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3920
+        },
+        "loaded": {
+          "VmRSS": 10032
+        },
+        "after_prompts": {
+          "VmRSS": 29680
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          321.29,
+          271.3,
+          240.5,
+          290.34,
+          261.03
+        ],
+        "median": 271.3,
+        "engines": [
+          "ripgrep"
+        ]
+      },
+      "version": "0.7.0",
+      "iteration": 2
+    }
+  ]
+}

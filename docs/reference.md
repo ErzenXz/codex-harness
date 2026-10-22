@@ -438,8 +438,8 @@ X11 key names.
 | `scroll` | `direction`: up/down/left/right; optional `amount`: 1–20 ticks |
 
 All actions, **including screenshots**, require explicit ACP permission. Plan,
-explore and reviewer agents cannot use them. Native desktop actions are serialized
-process-wide and have bounded output and deadlines. Cancellation stops subsequent
+explore and reviewer agents cannot use them. Native pointer input requires a
+screenshot from the same agent. Desktop actions are serialized process-wide and have bounded output and deadlines. Cancellation stops subsequent
 typing chunks; dispatched input cannot be undone. Use one desktop-driving session
 at a time, or separate displays/VMs: serialized actions
 do not isolate focus across whole multi-step flows. Input dispatch is not proof

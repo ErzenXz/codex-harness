@@ -51,6 +51,42 @@ model input; durable history has a separate 16 MiB/session cap. Neither caps tot
 process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
+## Version 0.7.0 native desktop footprint (2026-10-22)
+
+Compared the installed 0.6.2 npm binary with a local 0.7.0 release build on the
+same macOS arm64 machine. Both binaries completed a warm-up; three alternating
+256-prompt fixtures per version ran without concurrent local builds, tests or
+desktop automation. Medians below measure normal sessions with desktop control
+disabled, excluding model inference and graphics framework use.
+
+| Measurement | 0.6.2 | 0.7.0 |
+| --- | ---: | ---: |
+| Native binary bytes | 3,302,528 | 3,352,832 |
+| ACP startup + initialize | 6.51 ms | 6.56 ms |
+| Startup observed range | 6.27–9.43 ms | 6.55–9.96 ms |
+| Idle sampled RSS | 3,952 KiB | 3,920 KiB |
+| 256 mock prompts, 50 ms simulated delay | 0.672 s | 0.691 s |
+| Sampled RSS after 256 completed prompts | 30,880 KiB | 29,680 KiB |
+| 10,000-file search, end-to-end | 328.78 ms | 271.30 ms |
+
+Native desktop support adds **50,304 bytes (1.5%)** on this platform, with no new
+runtime dependencies. Startup and idle memory are roughly unchanged in these
+samples. Search is faster here; mock turns are slightly slower. Small sample
+sizes, caches and scheduling prevent a general speedup or memory-saving claim.
+
+macOS graphics frameworks load only when an approved desktop action reaches the
+native driver. Windows loads the system GDI+ encoder on the first approved
+capture. Screenshots target a resized surface rather than a full Retina/4K bitmap
+on current macOS and Windows. macOS before 14 uses the legacy capture fallback.
+Images are at most 1280×960 and 96 KiB; adaptive compression may shrink them
+further. Native OS calls use on-demand blocking workers and a shared desktop
+gate; normal coding sessions start no desktop helper, capture loop or daemon.
+Desktop use loads system libraries and transient image buffers, so these idle
+numbers do not describe active capture memory or external WindowServer/browser
+memory. Both platforms require the OS permissions described in the reference.
+
+[Raw runs and binary hashes](benchmarks/macos-arm64-0.7.0.json).
+
 ## Version 0.6.2 tools and footprint (2026-10-22)
 
 Compared the installed 0.5.0 npm binary against a local 0.6.2 release build on the

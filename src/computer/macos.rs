@@ -33,14 +33,34 @@ struct Rect {
     size: Size,
 }
 
-#[link(name = "CoreGraphics", kind = "framework")]
-unsafe extern "C" {
-    fn CGMainDisplayID() -> u32;
-    fn CGDisplayBounds(display: u32) -> Rect;
-    fn CGDisplayCreateImage(display: u32) -> Ref;
-    fn CGPreflightScreenCaptureAccess() -> bool;
-    fn CGColorSpaceCreateDeviceRGB() -> Ref;
-    fn CGBitmapContextCreate(
+// Frameworks are resolved only after an approved native action reaches this backend.
+// Function pointers and handles stay valid for process lifetime, including late callbacks.
+macro_rules! system_api {
+    ($($framework:literal => {$(fn $name:ident($($arg:ident: $arg_type:ty),* $(,)?) -> $result:ty;)*})*) => {
+        #[allow(non_snake_case)]
+        struct Api { $($( $name: unsafe extern "C" fn($($arg_type),*) -> $result, )*)* jpeg_quality: usize }
+        #[allow(non_snake_case)]
+        impl Api {
+            fn load() -> Result<Self> {
+                $($(let $name;)* {
+                    let handle = framework($framework)?;
+                    $($name = unsafe { std::mem::transmute::<Ref, unsafe extern "C" fn($($arg_type),*) -> $result>(symbol(handle, concat!(stringify!($name), "\0").as_bytes())?) };)*
+                })*
+                let image_io = framework("ImageIO")?;
+                let jpeg_quality = symbol(image_io, b"kCGImageDestinationLossyCompressionQuality\0")? as usize;
+                Ok(Self { $($($name,)*)* jpeg_quality })
+            }
+        }
+    };
+}
+system_api! {
+    "CoreGraphics" => {
+        fn CGMainDisplayID() -> u32;
+        fn CGDisplayBounds(display: u32) -> Rect;
+        fn CGDisplayCreateImage(display: u32) -> Ref;
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGColorSpaceCreateDeviceRGB() -> Ref;
+        fn CGBitmapContextCreate(
         data: Ref,
         width: usize,
         height: usize,
@@ -49,16 +69,16 @@ unsafe extern "C" {
         space: Ref,
         flags: u32,
     ) -> Ref;
-    fn CGContextDrawImage(context: Ref, rect: Rect, image: Ref);
-    fn CGContextSetInterpolationQuality(context: Ref, quality: i32);
-    fn CGBitmapContextCreateImage(context: Ref) -> Ref;
-    fn CGEventCreateMouseEvent(source: Ref, kind: u32, point: Point, button: u32) -> Ref;
-    fn CGEventCreateKeyboardEvent(source: Ref, key: u16, down: bool) -> Ref;
-    fn CGEventKeyboardSetUnicodeString(event: Ref, length: usize, text: *const u16);
-    fn CGEventSetFlags(event: Ref, flags: u64);
-    fn CGEventSourceFlagsState(state: i32) -> u64;
-    fn CGEventSetIntegerValueField(event: Ref, field: u32, value: i64);
-    fn CGEventCreateScrollWheelEvent2(
+        fn CGContextDrawImage(context: Ref, rect: Rect, image: Ref) -> ();
+        fn CGContextSetInterpolationQuality(context: Ref, quality: i32) -> ();
+        fn CGBitmapContextCreateImage(context: Ref) -> Ref;
+        fn CGEventCreateMouseEvent(source: Ref, kind: u32, point: Point, button: u32) -> Ref;
+        fn CGEventCreateKeyboardEvent(source: Ref, key: u16, down: bool) -> Ref;
+        fn CGEventKeyboardSetUnicodeString(event: Ref, length: usize, text: *const u16) -> ();
+        fn CGEventSetFlags(event: Ref, flags: u64) -> ();
+        fn CGEventSourceFlagsState(state: i32) -> u64;
+        fn CGEventSetIntegerValueField(event: Ref, field: u32, value: i64) -> ();
+        fn CGEventCreateScrollWheelEvent2(
         source: Ref,
         units: u32,
         count: u32,
@@ -66,24 +86,20 @@ unsafe extern "C" {
         horizontal: i32,
         third: i32,
     ) -> Ref;
-    fn CGEventPost(tap: u32, event: Ref);
-}
-
-#[link(name = "ApplicationServices", kind = "framework")]
-unsafe extern "C" {
-    fn AXIsProcessTrusted() -> bool;
-}
-
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    fn CFRetain(object: Ref) -> Ref;
-    fn CFRelease(object: Ref);
-    fn CFDataCreateMutable(allocator: Ref, capacity: isize) -> Ref;
-    fn CFDataGetLength(data: Ref) -> isize;
-    fn CFDataGetBytePtr(data: Ref) -> *const u8;
-    fn CFStringCreateWithCString(allocator: Ref, text: *const c_char, encoding: u32) -> Ref;
-    fn CFNumberCreate(allocator: Ref, kind: i32, value: *const f64) -> Ref;
-    fn CFDictionaryCreate(
+        fn CGEventPost(tap: u32, event: Ref) -> ();
+    }
+    "ApplicationServices" => {
+        fn AXIsProcessTrusted() -> bool;
+    }
+    "CoreFoundation" => {
+        fn CFRetain(object: Ref) -> Ref;
+        fn CFRelease(object: Ref) -> ();
+        fn CFDataCreateMutable(allocator: Ref, capacity: isize) -> Ref;
+        fn CFDataGetLength(data: Ref) -> isize;
+        fn CFDataGetBytePtr(data: Ref) -> *const u8;
+        fn CFStringCreateWithCString(allocator: Ref, text: *const c_char, encoding: u32) -> Ref;
+        fn CFNumberCreate(allocator: Ref, kind: i32, value: *const f64) -> Ref;
+        fn CFDictionaryCreate(
         allocator: Ref,
         keys: *const Ref,
         values: *const Ref,
@@ -91,14 +107,39 @@ unsafe extern "C" {
         key_callbacks: Ref,
         value_callbacks: Ref,
     ) -> Ref;
+    }
+    "ImageIO" => {
+        fn CGImageDestinationCreateWithData(data: Ref, kind: Ref, count: usize, options: Ref) -> Ref;
+        fn CGImageDestinationAddImage(destination: Ref, image: Ref, properties: Ref) -> ();
+        fn CGImageDestinationFinalize(destination: Ref) -> bool;
+    }
 }
-
-#[link(name = "ImageIO", kind = "framework")]
-unsafe extern "C" {
-    static kCGImageDestinationLossyCompressionQuality: Ref;
-    fn CGImageDestinationCreateWithData(data: Ref, kind: Ref, count: usize, options: Ref) -> Ref;
-    fn CGImageDestinationAddImage(destination: Ref, image: Ref, properties: Ref);
-    fn CGImageDestinationFinalize(destination: Ref) -> bool;
+fn framework(name: &str) -> Result<Ref> {
+    let path = std::ffi::CString::new(format!(
+        "/System/Library/Frameworks/{name}.framework/{name}"
+    ))?;
+    let handle = unsafe { dlopen(path.as_ptr(), 2) };
+    ensure!(
+        !handle.is_null(),
+        "macOS system framework {name} could not be loaded"
+    );
+    Ok(handle)
+}
+fn symbol(handle: Ref, name: &[u8]) -> Result<Ref> {
+    let name = CStr::from_bytes_with_nul(name)?;
+    let pointer = unsafe { dlsym(handle, name.as_ptr()) };
+    ensure!(
+        !pointer.is_null(),
+        "macOS system API {} is unavailable",
+        name.to_string_lossy()
+    );
+    Ok(pointer)
+}
+fn api() -> Result<&'static Api> {
+    static API: OnceLock<std::result::Result<Api, String>> = OnceLock::new();
+    API.get_or_init(|| Api::load().map_err(|error| error.to_string()))
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 #[link(name = "objc")]
@@ -111,19 +152,20 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     fn dlopen(path: *const c_char, flags: c_int) -> Ref;
+    fn dlsym(handle: Ref, name: *const c_char) -> Ref;
     static _NSConcreteStackBlock: c_void;
 }
 
-struct Owned(Ref);
+struct Owned(Ref, &'static Api);
 impl Owned {
     fn new(pointer: Ref, operation: &str) -> Result<Self> {
         ensure!(!pointer.is_null(), "macOS {operation} failed");
-        Ok(Self(pointer))
+        Ok(Self(pointer, api()?))
     }
 }
 impl Drop for Owned {
     fn drop(&mut self) {
-        unsafe { CFRelease(self.0) };
+        unsafe { (self.1.CFRelease)(self.0) };
     }
 }
 
@@ -140,7 +182,8 @@ impl Drop for Pool {
 }
 
 fn bounds() -> Result<Rect> {
-    let bounds = unsafe { CGDisplayBounds(CGMainDisplayID()) };
+    let api = api()?;
+    let bounds = unsafe { (api.CGDisplayBounds)((api.CGMainDisplayID)()) };
     let size = bounds.size;
     ensure!(
         size.width.is_finite()
@@ -162,20 +205,23 @@ pub fn geometry() -> Result<(u32, u32)> {
 }
 
 fn require_capture() -> Result<()> {
+    let api = api()?;
     ensure!(
-        unsafe { CGPreflightScreenCaptureAccess() },
+        unsafe { (api.CGPreflightScreenCaptureAccess)() },
         "macOS Screen Recording permission is required. Open System Settings > Privacy & Security > Screen & System Audio Recording (Screen Recording on older macOS), enable the app or terminal launching Piko, then restart it. Piko does not open permission prompts automatically."
     );
     Ok(())
 }
 
 fn require_input() -> Result<()> {
+    let api = api()?;
     ensure!(
-        unsafe { AXIsProcessTrusted() },
+        unsafe { (api.AXIsProcessTrusted)() },
         "macOS Accessibility permission is required. Open System Settings > Privacy & Security > Accessibility, enable the app or terminal launching Piko, then restart it. Piko does not open permission prompts automatically."
     );
     ensure!(
-        unsafe { CGEventSourceFlagsState(1) } & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20))
+        unsafe { (api.CGEventSourceFlagsState)(1) }
+            & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20))
             == 0,
         "Release physical Shift/Control/Option/Command keys before computer input"
     );
@@ -210,11 +256,15 @@ fn compress(captured: &Owned, width: u32, height: u32, limit: usize) -> Result<V
 }
 
 fn encode(captured: &Owned, width: u32, height: u32, limit: usize) -> Result<Option<Vec<u8>>> {
-    let color = Owned::new(unsafe { CGColorSpaceCreateDeviceRGB() }, "RGB color space")?;
+    let api = api()?;
+    let color = Owned::new(
+        unsafe { (api.CGColorSpaceCreateDeviceRGB)() },
+        "RGB color space",
+    )?;
     // 8-bit RGBX avoids an alpha channel in JPEG and caps the output bitmap at 4.7 MiB.
     let bitmap = Owned::new(
         unsafe {
-            CGBitmapContextCreate(
+            (api.CGBitmapContextCreate)(
                 ptr::null_mut(),
                 width as usize,
                 height as usize,
@@ -227,8 +277,8 @@ fn encode(captured: &Owned, width: u32, height: u32, limit: usize) -> Result<Opt
         "screenshot bitmap",
     )?;
     unsafe {
-        CGContextSetInterpolationQuality(bitmap.0, 3);
-        CGContextDrawImage(
+        (api.CGContextSetInterpolationQuality)(bitmap.0, 3);
+        (api.CGContextDrawImage)(
             bitmap.0,
             Rect {
                 origin: Point { x: 0.0, y: 0.0 },
@@ -241,32 +291,36 @@ fn encode(captured: &Owned, width: u32, height: u32, limit: usize) -> Result<Opt
         );
     }
     let scaled = Owned::new(
-        unsafe { CGBitmapContextCreateImage(bitmap.0) },
+        unsafe { (api.CGBitmapContextCreateImage)(bitmap.0) },
         "scaled screenshot",
     )?;
     drop(bitmap);
     let jpeg_type = Owned::new(
-        unsafe { CFStringCreateWithCString(ptr::null_mut(), c"public.jpeg".as_ptr(), 0x08000100) },
+        unsafe {
+            (api.CFStringCreateWithCString)(ptr::null_mut(), c"public.jpeg".as_ptr(), 0x08000100)
+        },
         "JPEG type",
     )?;
     for quality in [0.58_f64, 0.40, 0.25, 0.12, 0.04] {
         let data = Owned::new(
-            unsafe { CFDataCreateMutable(ptr::null_mut(), 0) },
+            unsafe { (api.CFDataCreateMutable)(ptr::null_mut(), 0) },
             "JPEG buffer",
         )?;
         let destination = Owned::new(
-            unsafe { CGImageDestinationCreateWithData(data.0, jpeg_type.0, 1, ptr::null_mut()) },
+            unsafe {
+                (api.CGImageDestinationCreateWithData)(data.0, jpeg_type.0, 1, ptr::null_mut())
+            },
             "JPEG encoder",
         )?;
         let number = Owned::new(
-            unsafe { CFNumberCreate(ptr::null_mut(), 13, &quality) },
+            unsafe { (api.CFNumberCreate)(ptr::null_mut(), 13, &quality) },
             "JPEG quality",
         )?;
         // No dictionary callbacks are needed: both borrowed entries outlive encoding.
-        let key = unsafe { kCGImageDestinationLossyCompressionQuality };
+        let key = unsafe { *(api.jpeg_quality as *const Ref) };
         let properties = Owned::new(
             unsafe {
-                CFDictionaryCreate(
+                (api.CFDictionaryCreate)(
                     ptr::null_mut(),
                     &key,
                     &number.0,
@@ -277,15 +331,15 @@ fn encode(captured: &Owned, width: u32, height: u32, limit: usize) -> Result<Opt
             },
             "JPEG properties",
         )?;
-        unsafe { CGImageDestinationAddImage(destination.0, scaled.0, properties.0) };
+        unsafe { (api.CGImageDestinationAddImage)(destination.0, scaled.0, properties.0) };
         ensure!(
-            unsafe { CGImageDestinationFinalize(destination.0) },
+            unsafe { (api.CGImageDestinationFinalize)(destination.0) },
             "macOS JPEG encoding failed"
         );
-        let length =
-            usize::try_from(unsafe { CFDataGetLength(data.0) }).context("Invalid JPEG length")?;
+        let length = usize::try_from(unsafe { (api.CFDataGetLength)(data.0) })
+            .context("Invalid JPEG length")?;
         if length <= limit {
-            let bytes = unsafe { CFDataGetBytePtr(data.0) };
+            let bytes = unsafe { (api.CFDataGetBytePtr)(data.0) };
             ensure!(
                 !bytes.is_null() && length > 0,
                 "macOS returned an empty screenshot"
@@ -329,6 +383,7 @@ impl Drop for CapturePermit {
     }
 }
 struct CaptureState {
+    api: &'static Api,
     _permit: CapturePermit,
     value: Mutex<Option<std::result::Result<usize, String>>>,
     ready: Condvar,
@@ -339,7 +394,7 @@ impl Drop for CaptureState {
         if let Ok(value) = self.value.get_mut()
             && let Some(Ok(image)) = value.take()
         {
-            release_capture(image as Ref, self.core_foundation);
+            release_capture(image as Ref, self.core_foundation, self.api);
         }
     }
 }
@@ -382,17 +437,17 @@ unsafe extern "C" fn captured(block: *const CaptureBlock, image: Ref, error: Ref
     } else if image.is_null() {
         Err("ScreenCaptureKit returned no screenshot; check Screen Recording permission and the unlocked display".into())
     } else {
-        Ok(retain_capture(image, state.core_foundation) as usize)
+        Ok(retain_capture(image, state.core_foundation, state.api) as usize)
     };
     if let Ok(mut value) = state.value.lock() {
         if value.is_none() {
             *value = Some(result);
             state.ready.notify_one();
         } else if let Ok(image) = result {
-            release_capture(image as Ref, state.core_foundation);
+            release_capture(image as Ref, state.core_foundation, state.api);
         }
     } else if let Ok(image) = result {
-        release_capture(image as Ref, state.core_foundation);
+        release_capture(image as Ref, state.core_foundation, state.api);
     }
 }
 
@@ -413,16 +468,16 @@ fn error_description(error: Ref) -> String {
     }
 }
 
-fn retain_capture(object: Ref, core_foundation: bool) -> Ref {
+fn retain_capture(object: Ref, core_foundation: bool, api: &Api) -> Ref {
     if core_foundation {
-        unsafe { CFRetain(object) }
+        unsafe { (api.CFRetain)(object) }
     } else {
         unsafe { send0(object, c"retain") }
     }
 }
-fn release_capture(object: Ref, core_foundation: bool) {
+fn release_capture(object: Ref, core_foundation: bool, api: &Api) {
     if core_foundation {
-        unsafe { CFRelease(object) };
+        unsafe { (api.CFRelease)(object) };
     } else {
         unsafe { send0(object, c"release") };
     }
@@ -436,7 +491,7 @@ impl ObjcOwned {
 }
 impl Drop for ObjcOwned {
     fn drop(&mut self) {
-        release_capture(self.0, false);
+        unsafe { send0(self.0, c"release") };
     }
 }
 unsafe fn send0(object: Ref, name: &CStr) -> Ref {
@@ -447,6 +502,7 @@ unsafe fn send0(object: Ref, name: &CStr) -> Ref {
 
 fn request(core_foundation: bool, start: impl FnOnce(*const CaptureBlock)) -> Result<usize> {
     let state = Arc::new(CaptureState {
+        api: api()?,
         _permit: CapturePermit::acquire()?,
         value: Mutex::new(None),
         ready: Condvar::new(),
@@ -484,6 +540,7 @@ fn request(core_foundation: bool, start: impl FnOnce(*const CaptureBlock)) -> Re
 }
 
 fn capture(width: u32, height: u32) -> Result<Owned> {
+    let api = api()?;
     static SCREEN_CAPTURE_KIT: OnceLock<bool> = OnceLock::new();
     let loaded = *SCREEN_CAPTURE_KIT.get_or_init(|| unsafe {
         // Intentionally keep this system framework loaded for outstanding callbacks.
@@ -514,7 +571,7 @@ fn capture(width: u32, height: u32) -> Result<Owned> {
     }
     // This fallback is only for pre-macOS 14 systems lacking the modern one-shot API.
     Owned::new(
-        unsafe { CGDisplayCreateImage(CGMainDisplayID()) },
+        unsafe { (api.CGDisplayCreateImage)((api.CGMainDisplayID)()) },
         "screen capture; check Screen Recording permission and the unlocked graphical session",
     )
 }
@@ -525,6 +582,7 @@ unsafe fn configured_capture(
     width: u32,
     height: u32,
 ) -> Result<Owned> {
+    let api = api()?;
     unsafe {
         let content_class = objc_getClass(c"SCShareableContent".as_ptr());
         ensure!(
@@ -557,7 +615,8 @@ unsafe fn configured_capture(
                 index,
             );
             if !display.is_null()
-                && display_id(display, sel_registerName(c"displayID".as_ptr())) == CGMainDisplayID()
+                && display_id(display, sel_registerName(c"displayID".as_ptr()))
+                    == (api.CGMainDisplayID)()
             {
                 main = display;
                 break;
@@ -620,12 +679,13 @@ unsafe fn configured_capture(
                 std::mem::transmute(objc_msgSend as *const ());
             send(manager, selector, filter.0, config.0, block);
         })?;
-        Ok(Owned(image as Ref))
+        Ok(Owned(image as Ref, api))
     }
 }
 
 fn post(event: Owned) {
-    unsafe { CGEventPost(0, event.0) };
+    let api = event.1;
+    unsafe { (api.CGEventPost)(0, event.0) };
 }
 
 pub fn pointer(action: &str, x: u32, y: u32, button: &str) -> Result<()> {
@@ -645,27 +705,28 @@ pub fn pointer(action: &str, x: u32, y: u32, button: &str) -> Result<()> {
         "Coordinate outside main display bounds"
     );
     require_input()?;
+    let api = api()?;
     let point = Point {
         x: bounds.origin.x + f64::from(x),
         y: bounds.origin.y + f64::from(y),
     };
     post(Owned::new(
-        unsafe { CGEventCreateMouseEvent(ptr::null_mut(), 5, point, 0) },
+        unsafe { (api.CGEventCreateMouseEvent)(ptr::null_mut(), 5, point, 0) },
         "pointer movement event",
     )?);
     if action != "move" {
         for count in 1..=if action == "double_click" { 2 } else { 1 } {
             let press = Owned::new(
-                unsafe { CGEventCreateMouseEvent(ptr::null_mut(), down, point, button) },
+                unsafe { (api.CGEventCreateMouseEvent)(ptr::null_mut(), down, point, button) },
                 "mouse press event",
             )?;
             let release = Owned::new(
-                unsafe { CGEventCreateMouseEvent(ptr::null_mut(), up, point, button) },
+                unsafe { (api.CGEventCreateMouseEvent)(ptr::null_mut(), up, point, button) },
                 "mouse release event",
             )?;
             unsafe {
-                CGEventSetIntegerValueField(press.0, 1, count);
-                CGEventSetIntegerValueField(release.0, 1, count);
+                (api.CGEventSetIntegerValueField)(press.0, 1, count);
+                (api.CGEventSetIntegerValueField)(release.0, 1, count);
             }
             post(press);
             post(release);
@@ -675,11 +736,12 @@ pub fn pointer(action: &str, x: u32, y: u32, button: &str) -> Result<()> {
 }
 
 fn keyboard(code: u16, down: bool, flags: u64) -> Result<Owned> {
+    let api = api()?;
     let event = Owned::new(
-        unsafe { CGEventCreateKeyboardEvent(ptr::null_mut(), code, down) },
+        unsafe { (api.CGEventCreateKeyboardEvent)(ptr::null_mut(), code, down) },
         "keyboard event",
     )?;
-    unsafe { CGEventSetFlags(event.0, flags) };
+    unsafe { (api.CGEventSetFlags)(event.0, flags) };
     Ok(event)
 }
 
@@ -689,6 +751,7 @@ pub fn type_text(text: &str, cancel: &CancellationToken) -> Result<()> {
         "Text exceeds 4096 bytes or contains NUL"
     );
     require_input()?;
+    let api = api()?;
     // One Unicode scalar per event pair preserves surrogate pairs and never changes the clipboard.
     for character in text.chars() {
         ensure!(!cancel.is_cancelled(), "Computer action cancelled");
@@ -697,8 +760,8 @@ pub fn type_text(text: &str, cancel: &CancellationToken) -> Result<()> {
         let down = keyboard(0, true, 0)?;
         let up = keyboard(0, false, 0)?;
         unsafe {
-            CGEventKeyboardSetUnicodeString(down.0, encoded.len(), encoded.as_ptr());
-            CGEventKeyboardSetUnicodeString(up.0, encoded.len(), encoded.as_ptr());
+            (api.CGEventKeyboardSetUnicodeString)(down.0, encoded.len(), encoded.as_ptr());
+            (api.CGEventKeyboardSetUnicodeString)(up.0, encoded.len(), encoded.as_ptr());
         }
         post(down);
         post(up);
@@ -847,8 +910,11 @@ pub fn scroll(direction: &str, amount: u32) -> Result<()> {
         _ => bail!("Invalid scroll direction"),
     };
     require_input()?;
+    let api = api()?;
     post(Owned::new(
-        unsafe { CGEventCreateScrollWheelEvent2(ptr::null_mut(), 1, 2, vertical, horizontal, 0) },
+        unsafe {
+            (api.CGEventCreateScrollWheelEvent2)(ptr::null_mut(), 1, 2, vertical, horizontal, 0)
+        },
         "scroll event",
     )?);
     Ok(())
@@ -875,13 +941,14 @@ mod tests {
     }
     #[test]
     fn permission_checks_never_request_access() {
+        let api = api().unwrap();
         // Preflight APIs only: never screenshots, input, permission prompts, or desktop mutation.
-        let capture_allowed = unsafe { CGPreflightScreenCaptureAccess() };
+        let capture_allowed = unsafe { (api.CGPreflightScreenCaptureAccess)() };
         assert_eq!(require_capture().is_ok(), capture_allowed);
-        let input_allowed = unsafe { AXIsProcessTrusted() };
+        let input_allowed = unsafe { (api.AXIsProcessTrusted)() };
         if !input_allowed {
             assert!(require_input().is_err());
-        } else if unsafe { CGEventSourceFlagsState(1) }
+        } else if unsafe { (api.CGEventSourceFlagsState)(1) }
             & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20))
             == 0
         {
@@ -890,6 +957,7 @@ mod tests {
     }
     #[test]
     fn native_jpeg_encoder_scales_synthetic_pixels_without_screen_access() {
+        let api = api().unwrap();
         let (width, height) = (1280, 960);
         let mut pixels = vec![0_u8; width * height * 4];
         let mut seed = 1234567_u32;
@@ -899,10 +967,10 @@ mod tests {
             seed ^= seed << 5;
             pixel[..3].copy_from_slice(&seed.to_le_bytes()[..3]);
         }
-        let color = Owned::new(unsafe { CGColorSpaceCreateDeviceRGB() }, "test RGB").unwrap();
+        let color = Owned::new(unsafe { (api.CGColorSpaceCreateDeviceRGB)() }, "test RGB").unwrap();
         let bitmap = Owned::new(
             unsafe {
-                CGBitmapContextCreate(
+                (api.CGBitmapContextCreate)(
                     pixels.as_mut_ptr().cast(),
                     width,
                     height,
@@ -916,7 +984,7 @@ mod tests {
         )
         .unwrap();
         let image = Owned::new(
-            unsafe { CGBitmapContextCreateImage(bitmap.0) },
+            unsafe { (api.CGBitmapContextCreateImage)(bitmap.0) },
             "test image",
         )
         .unwrap();
@@ -947,6 +1015,7 @@ mod tests {
     #[test]
     fn completion_block_copies_and_releases_owned_callback_state() {
         let state = Arc::new(CaptureState {
+            api: api().unwrap(),
             _permit: CapturePermit::acquire().unwrap(),
             value: Mutex::new(None),
             ready: Condvar::new(),

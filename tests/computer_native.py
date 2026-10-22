@@ -15,6 +15,7 @@ import signal
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from stdio import Harness, call, response, final
 
@@ -30,6 +31,20 @@ def text_result(value):
     if isinstance(value, list):
         return '\n'.join(part['text'] for part in value if part.get('type') == 'input_text')
     return value
+
+
+def checked_model(handler, failures):
+    """Surface fixture assertions directly instead of retrying the fake provider."""
+    async def checked(body):
+        if failures:
+            return final('Native fixture failed')
+        try:
+            return await handler(body)
+        except Exception as error:
+            error.add_note(f'Native fixture stage: {len(results(body))} completed tool calls')
+            failures.append(error)
+            return final('Native fixture failed')
+    return checked
 
 
 def jpeg_dimensions(data):
@@ -176,6 +191,16 @@ class WindowsFixture:
             user.GetForegroundWindow.restype = W.HWND
             user.SetFocus.argtypes = [W.HWND]
             user.SetFocus.restype = W.HWND
+            user.SetActiveWindow.argtypes = [W.HWND]
+            user.SetActiveWindow.restype = W.HWND
+            user.ShowWindow.argtypes = [W.HWND, C.c_int]
+            user.BringWindowToTop.argtypes = [W.HWND]
+            user.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
+            user.GetWindowThreadProcessId.restype = W.DWORD
+            user.AttachThreadInput.argtypes = [W.DWORD, W.DWORD, W.BOOL]
+            user.AttachThreadInput.restype = W.BOOL
+            kernel.GetCurrentThreadId.restype = W.DWORD
+            user.PeekMessageW.argtypes = [C.POINTER(W.MSG), W.HWND, W.UINT, W.UINT, W.UINT]
             user.DestroyWindow.argtypes = [W.HWND]
             user.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
             user.GetMessageW.argtypes = [C.POINTER(W.MSG), W.HWND, W.UINT, W.UINT]
@@ -222,8 +247,32 @@ class WindowsFixture:
                                             0, 0, self.width, self.height, None, None, instance, None)
             if not self.hwnd:
                 raise C.WinError(C.get_last_error())
-            user.SetForegroundWindow(self.hwnd)
-            user.SetFocus(self.hwnd)
+            # The ARM runner's launcher can own foreground input initially. Join
+            # its input queue only while activating OUR window, then always detach.
+            # No synthetic Alt keystroke, unrelated window focus or desktop switch.
+            deadline = time.monotonic() + 2
+            current_thread = kernel.GetCurrentThreadId()
+            while user.GetForegroundWindow() != self.hwnd and time.monotonic() < deadline:
+                foreground = user.GetForegroundWindow()
+                foreground_thread = user.GetWindowThreadProcessId(foreground, None) if foreground else 0
+                attached = False
+                try:
+                    if foreground_thread and foreground_thread != current_thread:
+                        attached = bool(user.AttachThreadInput(current_thread, foreground_thread, True))
+                    user.ShowWindow(self.hwnd, 9)
+                    user.BringWindowToTop(self.hwnd)
+                    user.SetActiveWindow(self.hwnd)
+                    user.SetForegroundWindow(self.hwnd)
+                    user.SetFocus(self.hwnd)
+                finally:
+                    if attached:
+                        user.AttachThreadInput(current_thread, foreground_thread, False)
+                pending = W.MSG()
+                while user.PeekMessageW(C.byref(pending), None, 0, 0, 1):
+                    user.TranslateMessage(C.byref(pending))
+                    user.DispatchMessageW(C.byref(pending))
+                if user.GetForegroundWindow() != self.hwnd:
+                    time.sleep(.04)
             self.ready.set()
             message = W.MSG()
             while user.GetMessageW(C.byref(message), None, 0, 0) > 0:
@@ -293,9 +342,12 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                 if action['action'] in ('move', 'click', 'double_click'):
                     action.update(x=screenshot_size[0] // 2, y=screenshot_size[1] // 2)
                 return response([call('computer_use', action, f'native-{len(done)}')])
-            async with Harness(model, extra='computer_use = true\n') as harness:
+            failures = []
+            async with Harness(checked_model(model, failures), extra='computer_use = true\n') as harness:
                 await harness.initialize()
                 result = await harness.prompt(await harness.session())
+                if failures:
+                    raise failures[0]
                 self.assertEqual(result['result']['stopReason'], 'end_turn')
                 self.assertEqual(len(harness.permissions), len(actions))
             await asyncio.sleep(.2)
@@ -396,16 +448,24 @@ class MacNative(unittest.IsolatedAsyncioTestCase):
                     foreground.require_foreground()
                     tab, geometry, screenshot = None, None, None
                     unicode_text = 'Piko héllo 世界 🙂'
-                    geometry_js = '''(()=>{const p=e=>{const r=e.getBoundingClientRect();return {
+                    geometry_js = '''new Promise((resolve,reject)=>{const deadline=performance.now()+3000;
+                    const poll=()=>{if(document.readyState!=='complete'||!document.querySelector('#field')||
+                    !document.querySelector('#apply')||!Array.isArray(window.events)){
+                    if(performance.now()>=deadline){reject(new Error('Native fixture page not ready'));return}
+                    setTimeout(poll,25);return}
+                    const p=e=>{const r=e.getBoundingClientRect();return {
                     x:screenX+(outerWidth-innerWidth)/2+r.x+r.width/2,
-                    y:screenY+(outerHeight-innerHeight)+r.y+r.height/2}};return {
+                    y:screenY+(outerHeight-innerHeight)+r.y+r.height/2}};resolve({
                     focus:document.hasFocus(),field:p(document.querySelector('#field')),
-                    button:p(document.querySelector('#apply'))}})()'''
+                    button:p(document.querySelector('#apply'))})};poll()})'''
                     verify_js = '''new Promise(resolve=>setTimeout(()=>resolve({
                     value:document.querySelector('#field').value,
                     events:window.events,applied:window.applied}),100))'''
                     actions = [
                         ('browser', {'action': 'tabs'}),
+                        # Navigate waits for this target's Page.loadEventFired,
+                        # then bounded DOM polling confirms the fixture script ran.
+                        ('browser', {'action': 'navigate', 'url': url}),
                         ('browser', {'action': 'evaluate', 'expression': geometry_js}),
                         ('computer_use', {'action': 'screenshot'}),
                         ('computer_use', {'action': 'move', 'target': 'field'}),
@@ -429,16 +489,18 @@ class MacNative(unittest.IsolatedAsyncioTestCase):
                             value = done[-1]
                             if isinstance(value, str):
                                 parsed = json.loads(value)
-                                self.assertNotIn('error', parsed)
+                                previous_tool, previous_args = actions[len(done) - 1]
+                                self.assertNotIn('error', parsed,
+                                                 f'Tool {len(done)} {previous_tool}/{previous_args["action"]}: {parsed}')
                                 if len(done) == 1:
                                     tab = next(item['tab_id'] for item in parsed['results'] if item['url'] == url)
-                                elif len(done) == 2:
+                                elif len(done) == 3:
                                     geometry = json.loads(parsed['content'])
                                     self.assertTrue(geometry['focus'], 'Fixture document is not focused')
-                                elif len(done) in (9, 15):
+                                elif len(done) in (10, 16):
                                     state = json.loads(parsed['content'])
-                                    self.assertEqual(state['value'], unicode_text if len(done) == 9 else 'replacement')
-                                    if len(done) == 15:
+                                    self.assertEqual(state['value'], unicode_text if len(done) == 10 else 'replacement')
+                                    if len(done) == 16:
                                         self.assertEqual(state['applied'], 1)
                                         events = state['events']
                                         self.assertTrue(any(e['type'] == 'mousemove' for e in events))
@@ -447,7 +509,7 @@ class MacNative(unittest.IsolatedAsyncioTestCase):
                                         self.assertTrue(any(e['type'] == 'keydown' and e['meta'] and e['key'] == 'a' for e in events))
                                         self.assertTrue(any(e['type'] == 'wheel' and e['dy'] != 0 for e in events))
                                         self.assertTrue(any(e['type'] == 'wheel' and e['dx'] != 0 for e in events))
-                            if len(done) == 3:
+                            if len(done) == 4:
                                 self.assertIsInstance(value, list)
                                 data = next(p['image_url'] for p in value if p.get('type') == 'input_image')
                                 jpeg = base64.b64decode(data.split(',', 1)[1], validate=True)
@@ -471,7 +533,8 @@ class MacNative(unittest.IsolatedAsyncioTestCase):
                                             y=round(point['y'] * screenshot['height'] / screenshot['native_height']))
                         return response([call(tool, args, f'mac-native-{len(done)}')])
 
-                    async with Harness(model, extra=f'computer_use = true\nbrowser_cdp_url = "http://127.0.0.1:{port}"\n') as harness:
+                    failures = []
+                    async with Harness(checked_model(model, failures), extra=f'computer_use = true\nbrowser_cdp_url = "http://127.0.0.1:{port}"\n') as harness:
                         # Check focus again at the actual approval boundary, before OS input.
                         async def guard(permission):
                             if 'computer_use' in json.dumps(permission):
@@ -482,6 +545,8 @@ class MacNative(unittest.IsolatedAsyncioTestCase):
                         harness.permission_hook = guard
                         await harness.initialize()
                         result = await harness.prompt(await harness.session())
+                        if failures:
+                            raise failures[0]
                         self.assertEqual(result['result']['stopReason'], 'end_turn')
                         self.assertEqual(len(harness.permissions), len(actions))
                 finally:

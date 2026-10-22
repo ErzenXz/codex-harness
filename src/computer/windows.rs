@@ -5,6 +5,7 @@ use std::{
     ffi::c_void,
     mem::size_of,
     ptr::{null, null_mut},
+    sync::OnceLock,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -88,6 +89,10 @@ unsafe extern "system" {
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetCurrentThreadId() -> u32;
+    fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    fn LoadLibraryExW(name: *const u16, file: Handle, flags: u32) -> Handle;
+    fn GetProcAddress(module: Handle, name: *const u8) -> *mut c_void;
+    fn FreeLibrary(module: Handle) -> i32;
 }
 #[link(name = "gdi32")]
 unsafe extern "system" {
@@ -112,18 +117,83 @@ unsafe extern "system" {
         operation: u32,
     ) -> i32;
 }
-#[link(name = "gdiplus")]
-unsafe extern "system" {
-    fn GdiplusStartup(token: *mut usize, input: *const Startup, output: *mut c_void) -> i32;
-    fn GdiplusShutdown(token: usize);
-    fn GdipCreateBitmapFromHBITMAP(bitmap: Handle, palette: Handle, image: *mut Handle) -> i32;
-    fn GdipDisposeImage(image: Handle) -> i32;
-    fn GdipSaveImageToStream(
-        image: Handle,
-        stream: Handle,
-        encoder: *const Guid,
-        parameters: *const EncoderParameters,
-    ) -> i32;
+type GdiStartup = unsafe extern "system" fn(*mut usize, *const Startup, *mut c_void) -> i32;
+type GdiShutdown = unsafe extern "system" fn(usize);
+type GdiCreateBitmap = unsafe extern "system" fn(Handle, Handle, *mut Handle) -> i32;
+type GdiDisposeImage = unsafe extern "system" fn(Handle) -> i32;
+type GdiSaveImage =
+    unsafe extern "system" fn(Handle, Handle, *const Guid, *const EncoderParameters) -> i32;
+
+struct Module(usize);
+impl Drop for Module {
+    fn drop(&mut self) {
+        unsafe {
+            FreeLibrary(self.0 as Handle);
+        }
+    }
+}
+struct GdiApi {
+    // OnceLock keeps this module alive for every function pointer and Drop call.
+    _module: Module,
+    startup: GdiStartup,
+    shutdown: GdiShutdown,
+    create_bitmap: GdiCreateBitmap,
+    dispose_image: GdiDisposeImage,
+    save_image: GdiSaveImage,
+}
+impl GdiApi {
+    fn load() -> Result<Self> {
+        const DLL: [u16; 12] = [103, 100, 105, 112, 108, 117, 115, 46, 100, 108, 108, 0];
+        // LOAD_LIBRARY_SEARCH_SYSTEM32 excludes the working directory, PATH and
+        // user-controlled DLL search directories. No GDI+ import is linked at startup.
+        let mut path = [0u16; 1024];
+        let length = unsafe { GetSystemDirectoryW(path.as_mut_ptr(), path.len() as u32) } as usize;
+        ensure!(
+            length > 0 && length + 1 + DLL.len() <= path.len(),
+            "Could not resolve the Windows system image encoder directory"
+        );
+        path[length] = b'\\' as u16;
+        path[length + 1..length + 1 + DLL.len()].copy_from_slice(&DLL);
+        let handle = unsafe { LoadLibraryExW(path.as_ptr(), null_mut(), 0x800) };
+        ensure!(
+            !handle.is_null(),
+            "Could not load Windows system GDI+ image encoder: {}. Repair the Windows system component; Piko never downloads replacement DLLs",
+            std::io::Error::last_os_error()
+        );
+        let module = Module(handle as usize);
+        macro_rules! symbol {
+            ($name:literal, $kind:ty) => {{
+                let pointer =
+                    unsafe { GetProcAddress(module.0 as Handle, concat!($name, "\0").as_ptr()) };
+                ensure!(
+                    !pointer.is_null(),
+                    "Windows system GDI+ is missing {}. Repair the Windows system image encoder",
+                    $name
+                );
+                // The fixed export names below have the documented Windows ABI.
+                unsafe { std::mem::transmute::<*mut c_void, $kind>(pointer) }
+            }};
+        }
+        let startup = symbol!("GdiplusStartup", GdiStartup);
+        let shutdown = symbol!("GdiplusShutdown", GdiShutdown);
+        let create_bitmap = symbol!("GdipCreateBitmapFromHBITMAP", GdiCreateBitmap);
+        let dispose_image = symbol!("GdipDisposeImage", GdiDisposeImage);
+        let save_image = symbol!("GdipSaveImageToStream", GdiSaveImage);
+        Ok(Self {
+            _module: module,
+            startup,
+            shutdown,
+            create_bitmap,
+            dispose_image,
+            save_image,
+        })
+    }
+}
+fn gdi_api() -> Result<&'static GdiApi> {
+    static API: OnceLock<std::result::Result<GdiApi, String>> = OnceLock::new();
+    API.get_or_init(|| GdiApi::load().map_err(|error| error.to_string()))
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!(error.clone()))
 }
 #[link(name = "shlwapi")]
 unsafe extern "system" {
@@ -240,19 +310,25 @@ impl Drop for Selection {
         }
     }
 }
-struct Gdi(usize);
+struct Gdi {
+    token: usize,
+    api: &'static GdiApi,
+}
 impl Drop for Gdi {
     fn drop(&mut self) {
         unsafe {
-            GdiplusShutdown(self.0);
+            (self.api.shutdown)(self.token);
         }
     }
 }
-struct Image(Handle);
+struct Image {
+    handle: Handle,
+    api: &'static GdiApi,
+}
 impl Drop for Image {
     fn drop(&mut self) {
         unsafe {
-            GdipDisposeImage(self.0);
+            (self.api.dispose_image)(self.handle);
         }
     }
 }
@@ -323,6 +399,7 @@ pub fn screenshot(mut width: u32, mut height: u32, limit: usize) -> Result<Vec<u
 fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
     let _dpi = Dpi::enter()?;
     interactive()?;
+    let api = gdi_api()?;
     let (sw, sh) = dimensions()?;
     let screen = Screen(unsafe { GetDC(null_mut()) });
     if screen.0.is_null() {
@@ -374,17 +451,20 @@ fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
         suppress_codecs: 1,
     };
     ensure!(
-        unsafe { GdiplusStartup(&mut token, &startup, null_mut()) } == 0,
+        unsafe { (api.startup)(&mut token, &startup, null_mut()) } == 0,
         "Windows image encoder initialization failed"
     );
-    let _gdi = Gdi(token);
+    let _gdi = Gdi { token, api };
     let mut raw_image = null_mut();
     ensure!(
-        unsafe { GdipCreateBitmapFromHBITMAP(bitmap.0, null_mut(), &mut raw_image) } == 0
+        unsafe { (api.create_bitmap)(bitmap.0, null_mut(), &mut raw_image) } == 0
             && !raw_image.is_null(),
         "Could not prepare screenshot for JPEG encoding"
     );
-    let image = Image(raw_image);
+    let image = Image {
+        handle: raw_image,
+        api,
+    };
     let raw_stream = unsafe { SHCreateMemStream(null(), 0) };
     ensure!(
         !raw_stream.is_null(),
@@ -414,7 +494,7 @@ fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
         },
     };
     ensure!(
-        unsafe { GdipSaveImageToStream(image.0, stream.0, &jpeg, &parameters) } == 0,
+        unsafe { (api.save_image)(image.handle, stream.0, &jpeg, &parameters) } == 0,
         "Windows JPEG encoding failed"
     );
     stream.bytes(4 * 1024 * 1024)
