@@ -289,6 +289,17 @@ def windows_desktop_diagnostics(fixture=None):
                 'fixture_minimized': bool(user.IsIconic(hwnd)) if hwnd else None,
                 'activation_attempts': getattr(fixture, 'activation_attempts', [])[-3:],
             })
+            if hwnd:
+                user.WindowFromPoint.argtypes = [W.POINT]
+                user.WindowFromPoint.restype = W.HWND
+                center_hit = user.WindowFromPoint(W.POINT(fixture.width // 2, fixture.height // 2))
+                center_pid = W.DWORD()
+                if center_hit:
+                    user.GetWindowThreadProcessId(center_hit, C.byref(center_pid))
+                exposed = fixture.find_bootstrap_point()
+                diagnostics.update({'center_hit_hwnd': int(center_hit or 0),
+                    'center_hit_process': process_metadata(center_pid.value),
+                    'fixture_exposed_point': exposed, 'fixture_exposed': exposed is not None})
         return diagnostics
     finally:
         if desktop:
@@ -398,6 +409,8 @@ class WindowsFixture:
 
             @WNDPROC
             def callback(hwnd, message, wparam, lparam):
+                if message == 0x21:  # WM_MOUSEACTIVATE: activate our own fixture normally.
+                    return 1  # MA_ACTIVATE; never discard the actual test click.
                 if message == 0x000f:  # WM_PAINT
                     paint = PAINTSTRUCT()
                     dc = user.BeginPaint(hwnd, C.byref(paint))
@@ -501,6 +514,26 @@ class WindowsFixture:
             raise AssertionError('Initial native pointer target is not the owned visible fixture; refusing input. '
                                  + json.dumps({'hit_hwnd': int(hit or 0), **diagnostics}, sort_keys=True))
 
+    def find_bootstrap_point(self, image_size=None):
+        """Conservative grid hit-test only; never inject input into any window."""
+        import ctypes as C
+        from ctypes import wintypes as W
+        self.user.WindowFromPoint.argtypes = [W.POINT]
+        self.user.WindowFromPoint.restype = W.HWND
+        self.user.IsWindowVisible.argtypes = [W.HWND]
+        self.user.IsWindowEnabled.argtypes = [W.HWND]
+        if not (self.user.IsWindowVisible(self.hwnd) and self.user.IsWindowEnabled(self.hwnd)):
+            return None
+        width, height = image_size or (self.width, self.height)
+        fractions = [(.5, .5), (.1, .1), (.9, .1), (.1, .9), (.9, .9)]
+        fractions += [(x, y) for y in (.05, .25, .5, .75, .95) for x in (.05, .25, .5, .75, .95)]
+        for fx, fy in fractions:
+            image_x, image_y = min(width - 1, int(width * fx)), min(height - 1, int(height * fy))
+            x, y = image_x * self.width // width, image_y * self.height // height
+            if self.user.WindowFromPoint(W.POINT(x, y)) == self.hwnd:
+                return {'image_x': image_x, 'image_y': image_y, 'native_x': x, 'native_y': y}
+        return None
+
     def __exit__(self, *_):
         self.user.PostMessageW(self.hwnd, 0x10, 0, 0)
         self.thread.join(5)
@@ -514,7 +547,9 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
     async def test_capture_and_real_input_roundtrip(self):
         with WindowsFixture() as fixture:
             await asyncio.sleep(.25)
-            fixture.require_bootstrap_target(fixture.width // 2, fixture.height // 2)
+            pointer_point = fixture.find_bootstrap_point()
+            self.assertIsNotNone(pointer_point, 'Owned fixture has no exposed conservative grid point')
+            fixture.require_bootstrap_target(pointer_point['native_x'], pointer_point['native_y'])
             screenshot_size = None
             actions = [
                 {'action': 'screenshot'}, {'action': 'move'}, {'action': 'click'},
@@ -525,7 +560,7 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                 {'action': 'scroll', 'direction': 'right', 'amount': 2},
             ]
             async def model(body):
-                nonlocal screenshot_size
+                nonlocal screenshot_size, pointer_point
                 done = results(body)
                 if done:
                     value = done[-1]
@@ -548,6 +583,8 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual((geometry['width'], geometry['height']), screenshot_size)
                         self.assertEqual((geometry['native_width'], geometry['native_height']),
                                          (fixture.width, fixture.height))
+                        pointer_point = fixture.find_bootstrap_point(screenshot_size)
+                        self.assertIsNotNone(pointer_point, 'No exposed owned point maps from the actual JPEG')
                 if len(done) == 3:
                     # The one real Piko left click must activate our own window.
                     deadline = time.monotonic() + 2
@@ -558,12 +595,12 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                     return final()
                 action = dict(actions[len(done)])
                 if action['action'] in ('move', 'click', 'double_click'):
-                    action.update(x=screenshot_size[0] // 2, y=screenshot_size[1] // 2)
+                    action.update(x=pointer_point['image_x'], y=pointer_point['image_y'])
                 if len(done) <= 2:
                     x = (action.get('x', 0) * fixture.width // screenshot_size[0]
-                         if screenshot_size else fixture.width // 2)
+                         if screenshot_size else pointer_point['native_x'])
                     y = (action.get('y', 0) * fixture.height // screenshot_size[1]
-                         if screenshot_size else fixture.height // 2)
+                         if screenshot_size else pointer_point['native_y'])
                     fixture.require_bootstrap_target(x, y)
                 else:
                     fixture.require_foreground()
@@ -579,9 +616,9 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                             if index == 2:
                                 self.assertEqual(args.get('button', 'left'), 'left')
                             x = (args.get('x', 0) * fixture.width // screenshot_size[0]
-                                 if screenshot_size else fixture.width // 2)
+                                 if screenshot_size else pointer_point['native_x'])
                             y = (args.get('y', 0) * fixture.height // screenshot_size[1]
-                                 if screenshot_size else fixture.height // 2)
+                                 if screenshot_size else pointer_point['native_y'])
                             # Recheck the exact scaled native target immediately
                             # before approval; never send a bootstrap click elsewhere.
                             fixture.require_bootstrap_target(x, y)
@@ -609,8 +646,8 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
             self.assertIn('Piko héllo 世界 🙂', units.decode('utf-16-le'))
             clicks = [event for event in events if event[0] == 0x201]
             x, y = clicks[0][2] & 0xffff, (clicks[0][2] >> 16) & 0xffff
-            self.assertLessEqual(abs(x - fixture.width // 2), max(2, fixture.width // screenshot_size[0]))
-            self.assertLessEqual(abs(y - fixture.height // 2), max(2, fixture.height // screenshot_size[1]))
+            self.assertLessEqual(abs(x - pointer_point['native_x']), max(2, fixture.width // screenshot_size[0]))
+            self.assertLessEqual(abs(y - pointer_point['native_y']), max(2, fixture.height // screenshot_size[1]))
 
 
 class MacForeground:
