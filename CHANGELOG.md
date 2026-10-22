@@ -1,4 +1,4 @@
-# 0.6.1
+# 0.6.2
 
 - Add approved web fetch with public-network DNS pinning and bounded text, plus
   optional Brave-compatible search returning source links. Search requires a key.
@@ -19,6 +19,8 @@
   parent-turn cancellation to resumed child agents.
 - Expand native HTTP/WebSocket/PTY fixtures and end-to-end ACP checks across all
   six release targets; smoke-test an installed Chrome against a local page.
+- Include the union of dependency notices across all release targets and check
+  notice coverage before packaging. Versions 0.6.0 and 0.6.1 were not published.
 
 # 0.5.0
 

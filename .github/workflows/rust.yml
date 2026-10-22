@@ -18,6 +18,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
+      - name: Verify dependency license coverage across release targets
+        run: |
+          cargo fetch --locked
+          python3 -B -m unittest discover -s scripts -p test_licenses.py
+          python3 -B scripts/licenses.py --check
       - run: cargo clippy --locked --all-targets -- -D warnings
   native:
     name: ${{ matrix.platform }}

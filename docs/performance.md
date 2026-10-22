@@ -51,24 +51,24 @@ model input; durable history has a separate 16 MiB/session cap. Neither caps tot
 process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
-## Version 0.6.1 tools and footprint (2026-10-22)
+## Version 0.6.2 tools and footprint (2026-10-22)
 
-Compared the installed 0.5.0 npm binary against a local 0.6.1 release build on the
+Compared the installed 0.5.0 npm binary against a local 0.6.2 release build on the
 same macOS arm64 machine. The earlier 0.5.0 baseline uses the same fixture; three
-0.6.1 runs were recorded as a block after a dedicated warm-up, with no concurrent
+0.6.2 runs were recorded as a block after a dedicated warm-up, with no concurrent
 local agent builds, tests or browser automation. These runs were not randomized.
 Numbers below are medians. Startup includes fixture setup and excludes initial OS
 verification; timing and RSS remain sensitive to filesystem caches and paging.
 
-| Measurement | 0.5.0 | 0.6.1 |
+| Measurement | 0.5.0 | 0.6.2 |
 | --- | ---: | ---: |
 | Native binary bytes | 3,051,760 | 3,302,608 |
-| ACP startup + initialize | 7.07 ms | 5.59 ms |
-| Startup observed range | 6.97–12.34 ms | 5.29–5.67 ms |
-| Idle sampled RSS | 3,776 KiB | 3,872 KiB |
-| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.749 s |
-| Sampled RSS after 256 completed prompts | 33,888 KiB | 31,312 KiB |
-| 10,000-file search, end-to-end | 278.48 ms | 230.86 ms |
+| ACP startup + initialize | 7.07 ms | 5.91 ms |
+| Startup observed range | 6.97–12.34 ms | 5.66–5.92 ms |
+| Idle sampled RSS | 3,776 KiB | 3,904 KiB |
+| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.678 s |
+| Sampled RSS after 256 completed prompts | 33,888 KiB | 29,920 KiB |
+| 10,000-file search, end-to-end | 278.48 ms | 302.99 ms |
 
 The new web, image, patch, PTY and messaging tools add **250,848 bytes (8.2%)** to
 the native executable. This release is larger than 0.5.0. It ships no browser,
@@ -78,25 +78,27 @@ external; each live terminal adds two small-stack I/O threads and OS resources.
 Built-in tool schemas are shared across sessions instead of being rebuilt and
 copied for every prompt. Responses reuses their encoded bytes across steps. This
 removed an allocation regression measured during development. The final fixture's
-completed-prompt RSS is lower, while idle RSS is slightly higher. Startup and
-search are faster in these samples; the short-turn fixture is slower. This is
+completed-prompt RSS is lower, while idle RSS is slightly higher. Startup is
+faster in these samples; search and the short-turn fixture are slower. This is
 **not a general speedup or universal memory-reduction claim**. The expanded tool
 catalog also consumes more model context and request bytes.
 
 A separate held-stream fixture consumed every 128 KiB prompt and received all
 successful SSE headers before sampling. At 64 concurrent streams, steady sampled
-RSS was 47,840 → 45,728 KiB, and observed workload maximum was 53,280 → 50,976 KiB.
-The 32-stream result is close (27,040 → 25,792 KiB); one stream is slightly higher
-in 0.6.1 (4,960 → 5,248 KiB). Raw phase samples include page reclamation and all runs.
+RSS was 47,840 → 46,352 KiB, and observed workload maximum was 53,280 → 51,984 KiB.
+The 32-stream result is close (27,040 → 26,032 KiB); one stream is slightly higher
+in 0.6.2 (4,960 → 5,104 KiB). Raw phase samples include page reclamation and all runs.
 
-[Raw results, hashes, held-stream samples and validation scope](benchmarks/macos-arm64-0.6.1.json).
+[Raw results, hashes, held-stream samples and validation scope](benchmarks/macos-arm64-0.6.2.json).
 A real Chrome smoke test verified a local page through CDP navigation, snapshot,
 typing, click, evaluation, screenshot and close with a temporary dedicated profile.
 Public web fetching succeeded against agents.md; search uses documented HTTP
 fixtures and no paid search key. A live ChatGPT coding check exercised image
 viewing, patching and shell verification while preserving other fixture files.
-The unpublished 0.6.0 candidate's [raw measurements](benchmarks/macos-arm64-0.6.0.json)
-are retained separately; Windows startup negotiation was fixed before publishing.
+The unpublished [0.6.0](benchmarks/macos-arm64-0.6.0.json) and
+[0.6.1](benchmarks/macos-arm64-0.6.1.json) candidate measurements are retained
+separately. Windows startup and cross-target license coverage were fixed before
+publishing.
 
 ## Version 0.5.0 comparison (2026-10-21)
 
