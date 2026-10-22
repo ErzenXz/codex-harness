@@ -63,12 +63,12 @@ verification; timing and RSS remain sensitive to filesystem caches and paging.
 | Measurement | 0.5.0 | 0.6.1 |
 | --- | ---: | ---: |
 | Native binary bytes | 3,051,760 | 3,302,608 |
-| ACP startup + initialize | 7.07 ms | 5.83 ms |
-| Startup observed range | 6.97–12.34 ms | 5.82–5.96 ms |
-| Idle sampled RSS | 3,776 KiB | 3,888 KiB |
-| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.735 s |
-| Sampled RSS after 256 completed prompts | 33,888 KiB | 30,048 KiB |
-| 10,000-file search, end-to-end | 278.48 ms | 230.98 ms |
+| ACP startup + initialize | 7.07 ms | 5.59 ms |
+| Startup observed range | 6.97–12.34 ms | 5.29–5.67 ms |
+| Idle sampled RSS | 3,776 KiB | 3,872 KiB |
+| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.749 s |
+| Sampled RSS after 256 completed prompts | 33,888 KiB | 31,312 KiB |
+| 10,000-file search, end-to-end | 278.48 ms | 230.86 ms |
 
 The new web, image, patch, PTY and messaging tools add **250,848 bytes (8.2%)** to
 the native executable. This release is larger than 0.5.0. It ships no browser,
@@ -85,9 +85,9 @@ catalog also consumes more model context and request bytes.
 
 A separate held-stream fixture consumed every 128 KiB prompt and received all
 successful SSE headers before sampling. At 64 concurrent streams, steady sampled
-RSS was 47,840 → 46,352 KiB, and observed workload maximum was 53,280 → 51,296 KiB.
-The 32-stream result is close (27,040 → 26,400 KiB); one stream is slightly higher
-in 0.6.1 (4,960 → 5,104 KiB). Raw phase samples include page reclamation and all runs.
+RSS was 47,840 → 45,728 KiB, and observed workload maximum was 53,280 → 50,976 KiB.
+The 32-stream result is close (27,040 → 25,792 KiB); one stream is slightly higher
+in 0.6.1 (4,960 → 5,248 KiB). Raw phase samples include page reclamation and all runs.
 
 [Raw results, hashes, held-stream samples and validation scope](benchmarks/macos-arm64-0.6.1.json).
 A real Chrome smoke test verified a local page through CDP navigation, snapshot,

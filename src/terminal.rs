@@ -304,12 +304,15 @@ fn spawn(
         let system_root = std::env::var_os("SYSTEMROOT")
             .or_else(|| std::env::var_os("WINDIR"))
             .context("Missing Windows system directory")?;
-        let mut cmd =
-            CommandBuilder::new(std::path::PathBuf::from(system_root).join("System32/cmd.exe"));
+        let mut cmd = CommandBuilder::new(
+            std::path::PathBuf::from(system_root)
+                .join("System32")
+                .join("cmd.exe"),
+        );
         // CommandBuilder applies C argv escaping, which cannot represent arbitrary
         // cmd.exe scripts. Expand only this quoted, private script path; user
         // quotes, percent variables and multiline commands are parsed inside it.
-        cmd.args(["/D", "/S", "/C", "%PIKO_TERMINAL_SCRIPT%"]);
+        cmd.args(["/D", "/S", "/C", "call", "%PIKO_TERMINAL_SCRIPT%"]);
         cmd
     };
     #[cfg(not(windows))]
@@ -1006,6 +1009,42 @@ mod tests {
         drop(script);
         assert!(!path.exists());
         assert!(windows_script("echo bad\0command").is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_cmd_script_invocation_preserves_quoted_paths_and_variables() {
+        let directory = tempfile::tempdir().unwrap();
+        let quoted = directory.path().join("quoted path");
+        std::fs::create_dir(&quoted).unwrap();
+        let output_file = quoted.join("result.txt");
+        let command = format!(
+            "set piko_smoke=quoted-value\r\necho %piko_smoke%>\"{}\"\r\n\"%SystemRoot%\\System32\\cmd.exe\" /D /C type \"{}\"",
+            output_file.display(),
+            output_file.display()
+        );
+        let script = windows_script(&command).unwrap();
+        let system_root = std::env::var_os("SYSTEMROOT").unwrap();
+        let executable = std::path::PathBuf::from(system_root)
+            .join("System32")
+            .join("cmd.exe");
+        assert!(!executable.as_os_str().to_string_lossy().contains('/'));
+        let output = std::process::Command::new(executable)
+            .args(["/D", "/S", "/C", "call", "%PIKO_TERMINAL_SCRIPT%"])
+            .env("PIKO_TERMINAL_SCRIPT", format!("\"{}\"", script.display()))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("quoted-value"));
+        assert_eq!(
+            std::fs::read_to_string(output_file).unwrap(),
+            "quoted-value\r\n"
+        );
     }
 
     #[test]

@@ -47,8 +47,8 @@ Measured locally on **macOS arm64 · v0.6.1**.
 | Metric | Result |
 | :--- | ---: |
 | Native binary | **3.30 MB** |
-| ACP startup + initialize | **5.83 ms** |
-| Idle memory, sampled RSS | **3.80 MiB** |
+| ACP startup + initialize | **5.59 ms** |
+| Idle memory, sampled RSS | **3.78 MiB** |
 
 Median of three local synthetic runs; warm startup includes fixture setup.
 Model inference and browser memory are excluded. Timings and RSS vary by workload.

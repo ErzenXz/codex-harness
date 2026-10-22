@@ -145,42 +145,42 @@
       "iteration": 0,
       "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
       "binary_bytes": 3302608,
-      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "binary_sha256": "440760b00ddc2f1d1a709c997aa739deb83b3e340b2ee9e17f43db0fc6328f26",
       "environment": {
         "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
         "logical_cpus": 10
       },
       "agents": 256,
       "simulated_model_delay_ms": 50.0,
-      "startup_and_initialize_ms": 5.96,
-      "create_sessions_seconds": 0.644,
-      "complete_prompts_seconds": 0.735,
-      "synthetic_prompts_per_second": 348.3,
+      "startup_and_initialize_ms": 5.67,
+      "create_sessions_seconds": 0.669,
+      "complete_prompts_seconds": 0.749,
+      "synthetic_prompts_per_second": 341.7,
       "prompt_latency_ms": {
-        "p50": 726.99,
-        "p95": 728.08
+        "p50": 742.89,
+        "p95": 743.87
       },
       "peak_simultaneous_mock_requests": 256,
       "process_memory_kib_and_threads": {
         "idle": {
-          "VmRSS": 3888
+          "VmRSS": 3856
         },
         "loaded": {
           "VmRSS": 9952
         },
         "after_prompts": {
-          "VmRSS": 30048
+          "VmRSS": 31360
         }
       },
       "search_10000_files_end_to_end_ms": {
         "samples": [
-          222.38,
-          220.04,
-          226.97,
-          221.98,
-          226.98
+          230.86,
+          231.04,
+          303.95,
+          222.72,
+          227.95
         ],
-        "median": 222.38,
+        "median": 230.86,
         "engines": [
           "ripgrep"
         ]
@@ -191,42 +191,42 @@
       "iteration": 1,
       "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
       "binary_bytes": 3302608,
-      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "binary_sha256": "440760b00ddc2f1d1a709c997aa739deb83b3e340b2ee9e17f43db0fc6328f26",
       "environment": {
         "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
         "logical_cpus": 10
       },
       "agents": 256,
       "simulated_model_delay_ms": 50.0,
-      "startup_and_initialize_ms": 5.83,
-      "create_sessions_seconds": 0.634,
-      "complete_prompts_seconds": 0.684,
-      "synthetic_prompts_per_second": 374.4,
+      "startup_and_initialize_ms": 5.59,
+      "create_sessions_seconds": 0.7,
+      "complete_prompts_seconds": 0.712,
+      "synthetic_prompts_per_second": 359.5,
       "prompt_latency_ms": {
-        "p50": 678.91,
-        "p95": 680.01
+        "p50": 708.88,
+        "p95": 709.47
       },
       "peak_simultaneous_mock_requests": 256,
       "process_memory_kib_and_threads": {
         "idle": {
-          "VmRSS": 3920
+          "VmRSS": 3872
         },
         "loaded": {
           "VmRSS": 9904
         },
         "after_prompts": {
-          "VmRSS": 30096
+          "VmRSS": 31312
         }
       },
       "search_10000_files_end_to_end_ms": {
         "samples": [
-          279.69,
-          216.08,
-          219.98,
-          234.94,
-          230.98
+          307.16,
+          311.95,
+          269.98,
+          302.16,
+          216.99
         ],
-        "median": 230.98,
+        "median": 302.16,
         "engines": [
           "ripgrep"
         ]
@@ -237,42 +237,42 @@
       "iteration": 2,
       "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
       "binary_bytes": 3302608,
-      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "binary_sha256": "440760b00ddc2f1d1a709c997aa739deb83b3e340b2ee9e17f43db0fc6328f26",
       "environment": {
         "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
         "logical_cpus": 10
       },
       "agents": 256,
       "simulated_model_delay_ms": 50.0,
-      "startup_and_initialize_ms": 5.82,
-      "create_sessions_seconds": 0.678,
-      "complete_prompts_seconds": 0.746,
-      "synthetic_prompts_per_second": 343.2,
+      "startup_and_initialize_ms": 5.29,
+      "create_sessions_seconds": 0.621,
+      "complete_prompts_seconds": 0.751,
+      "synthetic_prompts_per_second": 340.9,
       "prompt_latency_ms": {
-        "p50": 731.61,
-        "p95": 732.25
+        "p50": 746.44,
+        "p95": 747.44
       },
       "peak_simultaneous_mock_requests": 256,
       "process_memory_kib_and_threads": {
         "idle": {
-          "VmRSS": 3888
+          "VmRSS": 3872
         },
         "loaded": {
-          "VmRSS": 9840
+          "VmRSS": 10000
         },
         "after_prompts": {
-          "VmRSS": 29936
+          "VmRSS": 29792
         }
       },
       "search_10000_files_end_to_end_ms": {
         "samples": [
-          291.0,
-          247.94,
-          302.87,
-          238.43,
-          232.72
+          227.92,
+          224.22,
+          228.02,
+          230.84,
+          220.02
         ],
-        "median": 247.94,
+        "median": 227.92,
         "engines": [
           "ripgrep"
         ]
@@ -1139,7 +1139,7 @@
           "path": "/Users/erzen/Projects/codex-harness/target/release/piko",
           "version": "piko 0.6.1",
           "bytes": 3302608,
-          "sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327"
+          "sha256": "440760b00ddc2f1d1a709c997aa739deb83b3e340b2ee9e17f43db0fc6328f26"
         },
         "runs": [
           {
@@ -1148,322 +1148,94 @@
             "context_budget_bytes_each": 393216,
             "received_model_requests": 1,
             "peak_simultaneous_fixture_streams": 1,
-            "aggregate_request_body_bytes": 141336,
-            "held_phase_seconds": 0.846,
+            "aggregate_request_body_bytes": 141353,
+            "held_phase_seconds": 0.832,
             "rss_kib": {
               "idle": {
-                "median_kib": 3888.0,
-                "max_kib": 3888,
+                "median_kib": 3872.0,
+                "max_kib": 3872,
                 "samples": [
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   },
                   {
-                    "VmRSS": 3888
+                    "VmRSS": 3872
                   }
                 ]
               },
               "loaded_sessions": {
-                "median_kib": 4112.0,
-                "max_kib": 4112,
+                "median_kib": 4160.0,
+                "max_kib": 4160,
                 "samples": [
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   },
                   {
-                    "VmRSS": 4112
+                    "VmRSS": 4160
                   }
                 ]
               },
               "all_streams_held": {
-                "median_kib": 5104.0,
-                "max_kib": 5104,
-                "samples": [
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  }
-                ]
-              },
-              "after_completed": {
-                "median_kib": 5344.0,
-                "max_kib": 5344,
-                "samples": [
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  }
-                ]
-              },
-              "observed_during_workload": {
-                "median_kib": 5104.0,
-                "max_kib": 5344,
-                "samples": [
-                  {
-                    "VmRSS": 4896
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5104
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  },
-                  {
-                    "VmRSS": 5344
-                  }
-                ]
-              }
-            },
-            "held_minus_loaded_median_kib": 992.0
-          },
-          {
-            "agents": 32,
-            "prompt_bytes_each": 131072,
-            "context_budget_bytes_each": 393216,
-            "received_model_requests": 32,
-            "peak_simultaneous_fixture_streams": 32,
-            "aggregate_request_body_bytes": 4522752,
-            "held_phase_seconds": 0.933,
-            "rss_kib": {
-              "idle": {
-                "median_kib": 3888.0,
-                "max_kib": 3888,
-                "samples": [
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  },
-                  {
-                    "VmRSS": 3888
-                  }
-                ]
-              },
-              "loaded_sessions": {
                 "median_kib": 5248.0,
                 "max_kib": 5248,
                 "samples": [
@@ -1505,188 +1277,416 @@
                   }
                 ]
               },
-              "all_streams_held": {
-                "median_kib": 26400.0,
-                "max_kib": 26400,
-                "samples": [
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  },
-                  {
-                    "VmRSS": 26400
-                  }
-                ]
-              },
               "after_completed": {
-                "median_kib": 31120.0,
-                "max_kib": 31120,
+                "median_kib": 5296.0,
+                "max_kib": 5296,
                 "samples": [
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   }
                 ]
               },
               "observed_during_workload": {
-                "median_kib": 26400.0,
-                "max_kib": 31120,
+                "median_kib": 5248.0,
+                "max_kib": 5296,
                 "samples": [
                   {
-                    "VmRSS": 6080
+                    "VmRSS": 5040
                   },
                   {
-                    "VmRSS": 24112
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5248
                   },
                   {
-                    "VmRSS": 26400
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 26656
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   },
                   {
-                    "VmRSS": 31120
-                  },
-                  {
-                    "VmRSS": 31120
-                  },
-                  {
-                    "VmRSS": 31120
+                    "VmRSS": 5296
                   }
                 ]
               }
             },
-            "held_minus_loaded_median_kib": 21152.0
+            "held_minus_loaded_median_kib": 1088.0
+          },
+          {
+            "agents": 32,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 32,
+            "peak_simultaneous_fixture_streams": 32,
+            "aggregate_request_body_bytes": 4523296,
+            "held_phase_seconds": 0.905,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3904.0,
+                "max_kib": 3904,
+                "samples": [
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  },
+                  {
+                    "VmRSS": 3904
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 5216.0,
+                "max_kib": 5216,
+                "samples": [
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  },
+                  {
+                    "VmRSS": 5216
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 25792.0,
+                "max_kib": 25792,
+                "samples": [
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 30368.0,
+                "max_kib": 30368,
+                "samples": [
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 25792.0,
+                "max_kib": 30368,
+                "samples": [
+                  {
+                    "VmRSS": 5920
+                  },
+                  {
+                    "VmRSS": 24880
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 25792
+                  },
+                  {
+                    "VmRSS": 26048
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  },
+                  {
+                    "VmRSS": 30368
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 20576.0
           },
           {
             "agents": 64,
@@ -1694,8 +1694,8 @@
             "context_budget_bytes_each": 393216,
             "received_model_requests": 64,
             "peak_simultaneous_fixture_streams": 64,
-            "aggregate_request_body_bytes": 9045504,
-            "held_phase_seconds": 0.965,
+            "aggregate_request_body_bytes": 9046592,
+            "held_phase_seconds": 0.973,
             "rss_kib": {
               "idle": {
                 "median_kib": 3888.0,
@@ -1740,252 +1740,256 @@
                 ]
               },
               "loaded_sessions": {
-                "median_kib": 5984.0,
-                "max_kib": 5984,
+                "median_kib": 5856.0,
+                "max_kib": 5856,
                 "samples": [
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   },
                   {
-                    "VmRSS": 5984
+                    "VmRSS": 5856
                   }
                 ]
               },
               "all_streams_held": {
-                "median_kib": 46352.0,
-                "max_kib": 46352,
+                "median_kib": 45728.0,
+                "max_kib": 45728,
                 "samples": [
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   }
                 ]
               },
               "after_completed": {
-                "median_kib": 51296.0,
-                "max_kib": 51296,
+                "median_kib": 50976.0,
+                "max_kib": 50976,
                 "samples": [
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   }
                 ]
               },
               "observed_during_workload": {
-                "median_kib": 46352.0,
-                "max_kib": 51296,
+                "median_kib": 45728,
+                "max_kib": 50976,
                 "samples": [
                   {
-                    "VmRSS": 6688
+                    "VmRSS": 6640
                   },
                   {
-                    "VmRSS": 25440
+                    "VmRSS": 25712
                   },
                   {
-                    "VmRSS": 43792
+                    "VmRSS": 43984
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46352
+                    "VmRSS": 45728
                   },
                   {
-                    "VmRSS": 46800
+                    "VmRSS": 46032
                   },
                   {
-                    "VmRSS": 51104
+                    "VmRSS": 50800
                   },
                   {
-                    "VmRSS": 51280
+                    "VmRSS": 50928
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
                   },
                   {
-                    "VmRSS": 51296
+                    "VmRSS": 50976
+                  },
+                  {
+                    "VmRSS": 50976
                   }
                 ]
               }
             },
-            "held_minus_loaded_median_kib": 40368.0
+            "held_minus_loaded_median_kib": 39872.0
           }
         ]
       }
     ]
   },
   "validation": {
-    "rust_tests": 97,
+    "rust_tests": 98,
     "acp_stdio_tests": 34,
     "macos_stdio_skips": 1,
     "reliability_tests": 7,
-    "new_tool_acp_tests": 8,
+    "new_tool_acp_tests": 9,
     "npm_tests": 4,
     "packed_install": "scripts disabled, offline",
     "browser": "real installed Chrome dedicated-profile local fixture on0.6candidate; navigation snapshot type click evaluate screenshot close passed",
     "web_fetch": "real public https://agents.md fetched; no paid search API used",
     "search": "documented Brave HTTP API fixture",
     "live_coding": "existing ChatGPT login, gpt-6-luna low; 0.6candidate viewed image, patched clamp.py, ran independent tests and preserved test/sentinel files",
-    "full_desktop": "Linux X11 native; macOS/Windows via external MCP"
+    "full_desktop": "Linux X11 native; macOS/Windows via external MCP",
+    "macos_tool_skips": 1
   }
 }
