@@ -248,14 +248,39 @@ impl Drop for Process {
         self.kill();
     }
 }
-struct Spawned {
-    process: Process,
-    reader: Box<dyn Read + Send>,
-    writer: Box<dyn Write + Send>,
-}
+type ReaderHandle = std::sync::mpsc::SyncSender<Box<dyn Read + Send>>;
+type WriterHandle = std::sync::mpsc::SyncSender<Box<dyn Write + Send>>;
 
-fn spawn(cwd: &Path, command: &str, size: PtySize) -> Result<Spawned> {
+fn spawn(
+    cwd: &Path,
+    command: &str,
+    size: PtySize,
+    reader_handle: ReaderHandle,
+    writer_handle: WriterHandle,
+) -> Result<Process> {
     let pair = portable_pty::native_pty_system().openpty(size)?;
+    #[cfg(unix)]
+    {
+        let fd = pair
+            .master
+            .as_raw_fd()
+            .context("Native PTY has no file descriptor")?;
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        ensure!(
+            flags >= 0 && unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
+            "Cannot configure nonblocking terminal"
+        );
+    }
+    // Handshake/drain workers receive the pipes BEFORE child creation or process
+    // containment can fail. All PTY construction/error destruction runs off-loop.
+    let reader = pair.master.try_clone_reader()?;
+    let writer = pair.master.take_writer()?;
+    reader_handle
+        .send(reader)
+        .map_err(|_| anyhow::anyhow!("Terminal reader stopped"))?;
+    writer_handle
+        .send(writer)
+        .map_err(|_| anyhow::anyhow!("Terminal writer stopped"))?;
     #[cfg(windows)]
     let mut cmd = {
         // Encoding avoids cmd.exe's incompatible quoting rules for embedded quotes.
@@ -298,29 +323,10 @@ fn spawn(cwd: &Path, command: &str, size: PtySize) -> Result<Spawned> {
             return Err(error);
         }
     };
-    let process = Process {
+    Ok(Process {
         master: Some(pair.master),
         child,
         group,
-    };
-    let master = process.master.as_ref().expect("master");
-    #[cfg(unix)]
-    {
-        let fd = master
-            .as_raw_fd()
-            .context("Native PTY has no file descriptor")?;
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        ensure!(
-            flags >= 0 && unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
-            "Cannot configure nonblocking terminal"
-        );
-    }
-    let reader = master.try_clone_reader()?;
-    let writer = master.take_writer()?;
-    Ok(Spawned {
-        process,
-        reader,
-        writer,
     })
 }
 
@@ -404,34 +410,24 @@ pub(crate) async fn start(
     }
     let directory = cwd.to_owned();
     let command = command.to_owned();
-    let spawned = match tokio::task::spawn_blocking(move || spawn(&directory, &command, size)).await
+    let spawned = match tokio::task::spawn_blocking(move || {
+        spawn(&directory, &command, size, reader_handle, writer_handle)
+    })
+    .await
     {
         Ok(result) => result,
         Err(error) => Err(anyhow::anyhow!("Terminal start interrupted: {error}")),
     };
-    let Spawned {
-        process,
-        reader,
-        writer,
-    } = match spawned {
-        Ok(spawned) => spawned,
+    let process = match spawned {
+        Ok(process) => process,
         Err(error) => {
+            reader_stop.cancel();
+            job.cancel.cancel();
             job.finish("failed", format!("{error:#}"), None, limit)
                 .await;
             return Err(error);
         }
     };
-    // Workers are already waiting and these one-slot channels are empty.
-    // Hand them the pipes even after cancellation so the initial ConPTY handshake
-    // can complete during bounded teardown on the blocking worker.
-    if reader_handle.send(reader).is_err() || writer_handle.send(writer).is_err() {
-        reader_stop.cancel();
-        job.cancel.cancel();
-        let _cleanup = tokio::task::spawn_blocking(move || drop(process));
-        job.finish("failed", "Terminal I/O worker stopped".into(), None, limit)
-            .await;
-        bail!("Terminal I/O worker stopped");
-    }
     *job.terminal.lock().await = Some(Arc::new(Terminal { input, resize }));
     let monitor_job = job.clone();
     let monitor_peer = peer.clone();
