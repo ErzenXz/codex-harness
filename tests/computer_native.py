@@ -493,7 +493,7 @@ class WindowsFixture:
                                  + json.dumps(windows_desktop_diagnostics(self), sort_keys=True))
 
     def require_bootstrap_target(self, x, y):
-        """Permit only this fixture's visible center for the initial native click."""
+        """Permit only an exposed point belonging to this fixture for activation."""
         import ctypes as C
         from ctypes import wintypes as W
         if self.error:
