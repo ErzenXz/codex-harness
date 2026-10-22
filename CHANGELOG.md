@@ -20,7 +20,8 @@
 - Expand native HTTP/WebSocket/PTY fixtures and end-to-end ACP checks across all
   six release targets; smoke-test an installed Chrome against a local page.
 - Include the union of dependency notices across all release targets and check
-  notice coverage before packaging. Versions 0.6.0 and 0.6.1 were not published.
+  notice coverage before packaging. The main packages for 0.6.0 and 0.6.1 were
+  never published; interrupted native 0.6.1 uploads are superseded by 0.6.2.
 
 # 0.5.0
 
