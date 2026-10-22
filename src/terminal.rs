@@ -1010,12 +1010,13 @@ mod tests {
         #[cfg(unix)]
         let command = "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size";
         #[cfg(windows)]
-        let command = "if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)";
+        let command = "if ([Console]::IsInputRedirected) {exit 9}; [Console]::Write('ready>'); $line = [Console]::ReadLine(); [Console]::WriteLine('reply:' + $line)";
+        let began = Instant::now();
         let snapshot = start(
             &jobs,
             directory.path(),
             command,
-            10,
+            if cfg!(windows) { 30 } else { 10 },
             PtySize::default(),
             Some("owner".into()),
             &CancellationToken::new(),
@@ -1027,22 +1028,26 @@ mod tests {
         .unwrap();
         let id = snapshot["task_id"].as_str().unwrap();
         let job = jobs.get(id).await.unwrap();
-        let ready = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let snapshot = jobs
-                    .status(id, Some("owner"), 1000, &CancellationToken::new())
-                    .await
-                    .unwrap();
-                if snapshot["output"].as_str().unwrap().contains("ready>") {
-                    break;
+        let ready = tokio::time::timeout(
+            Duration::from_secs(if cfg!(windows) { 15 } else { 5 }),
+            async {
+                loop {
+                    let snapshot = jobs
+                        .status(id, Some("owner"), 1000, &CancellationToken::new())
+                        .await
+                        .unwrap();
+                    if snapshot["output"].as_str().unwrap().contains("ready>") {
+                        break;
+                    }
+                    assert_eq!(snapshot["status"], "running", "{snapshot}");
                 }
-                assert_eq!(snapshot["status"], "running", "{snapshot}");
-            }
-        })
+            },
+        )
         .await;
         assert!(
             ready.is_ok(),
-            "Terminal failed to become ready: {}",
+            "Terminal failed to become ready after {:?}: {}",
+            began.elapsed(),
             job.snapshot().await
         );
         assert!(

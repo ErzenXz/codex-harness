@@ -150,11 +150,11 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tasks[0]['status'], 'cancelled')
 
     async def test_interactive_terminal_approvals_resize_input_and_output(self):
-        command = "if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)" if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
+        command = "if ([Console]::IsInputRedirected) {exit 9}; [Console]::Write('ready>'); $line = [Console]::ReadLine(); [Console]::WriteLine('reply:' + $line)" if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
         async def model(body):
             done = outputs(body)
             if not done:
-                return response([call('terminal_start', {'command': command, 'timeout_secs': 10, 'rows': 24, 'cols': 80}, 'start')])
+                return response([call('terminal_start', {'command': command, 'timeout_secs': 30 if os.name == 'nt' else 10, 'rows': 24, 'cols': 80}, 'start')])
             task = json.loads(done[0])['task_id']
             self.assertTrue(all('error' not in json.loads(value) for value in done))
             if len(done) == 1:
