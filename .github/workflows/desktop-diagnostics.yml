@@ -21,6 +21,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.13'
+      - name: Prepare disposable hosted desktop
+        if: inputs.exercise_native
+        run: ./tests/prepare-windows-desktop.ps1
       - name: Inspect desktop access and activate only an isolated test window
         env:
           PYTHONPATH: tests
@@ -35,6 +38,9 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - if: inputs.exercise_native
         run: cargo build --release --locked
+      - name: Prepare disposable hosted desktop before live input
+        if: inputs.exercise_native
+        run: ./tests/prepare-windows-desktop.ps1
       - name: Exercise real native capture and input
         if: inputs.exercise_native
         env:

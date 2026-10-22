@@ -68,6 +68,10 @@ jobs:
       - run: cargo build --release --locked --target '${{ matrix.target }}'
       - run: python tests/stdio.py
       - run: python tests/computer_native.py
+      - name: Prepare disposable Windows ARM64 desktop
+        if: matrix.platform == 'win32-arm64'
+        shell: pwsh
+        run: ./tests/prepare-windows-desktop.ps1
       - name: Verify native desktop input in isolated Windows fixture
         if: runner.os == 'Windows'
         env:
