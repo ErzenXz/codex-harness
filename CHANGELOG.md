@@ -1,4 +1,4 @@
-# 0.6.0
+# 0.6.1
 
 - Add approved web fetch with public-network DNS pinning and bounded text, plus
   optional Brave-compatible search returning source links. Search requires a key.
@@ -13,6 +13,8 @@
   context; close the final-reply message race and keep read-only limits intact.
 - Share immutable built-in schemas across sessions and encode them once; reuse
   Responses schema bytes across model steps. Keep optional tools lazy and their outputs, queues and lifetimes bounded.
+- Answer Windows ConPTY cursor negotiation without model input; propagate active
+  parent-turn cancellation to resumed child agents.
 - Expand native HTTP/WebSocket/PTY fixtures and end-to-end ACP checks across all
   six release targets; smoke-test an installed Chrome against a local page.
 

@@ -107,6 +107,7 @@ pub async fn spawn(ctx: &AgentContext, args: &Value) -> Result<Value> {
         job.clone(),
         vec![json!({"role":"user","content":prompt})],
         permit,
+        ctx.cancel.clone(),
     );
     ctx.peer
         .task_event(
@@ -134,10 +135,18 @@ fn launch(
     task: Arc<Job>,
     mut items: Vec<Value>,
     permit: tokio::sync::OwnedSemaphorePermit,
+    parent_cancel: tokio_util::sync::CancellationToken,
 ) {
     tokio::spawn(async move {
         let _permit = permit;
-        let result = run_agent(&child, &mut items).await;
+        let result = tokio::select! {
+            biased;
+            _ = parent_cancel.cancelled() => {
+                child.cancel.cancel();
+                Err(anyhow::anyhow!("Parent turn cancelled"))
+            },
+            result = run_agent(&child, &mut items) => result,
+        };
         let (status, mut output) = if child.cancel.is_cancelled() {
             ("cancelled", "Cancelled".into())
         } else {
@@ -253,7 +262,13 @@ pub async fn message(ctx: &AgentContext, args: &Value, follow_up: bool) -> Resul
             state.truncated = false;
         }
         drop(entries);
-        launch(child, job, items, permit.expect("follow-up permit"));
+        launch(
+            child,
+            job,
+            items,
+            permit.expect("follow-up permit"),
+            ctx.cancel.clone(),
+        );
         Ok(json!({"task_id":id,"status":"running"}))
     } else {
         ensure!(

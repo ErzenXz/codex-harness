@@ -48,7 +48,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/piko --tag v0.6.0 --locked
+cargo install --git https://github.com/ErzenXz/piko --tag v0.6.1 --locked
 ```
 
 ## ACP launch contract

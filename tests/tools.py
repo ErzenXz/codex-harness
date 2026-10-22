@@ -113,6 +113,42 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['result']['stopReason'], 'end_turn')
             self.assertEqual(len(child_requests), 3)
 
+    async def test_cancel_new_parent_turn_stops_resumed_child(self):
+        phase = 0
+        child_count = 0
+        child_running = asyncio.Event()
+        async def model(body):
+            nonlocal child_count
+            if body['input'][0].get('content', '').strip() == 'resumable child':
+                child_count += 1
+                if child_count == 2:
+                    child_running.set()
+                    await asyncio.sleep(2)
+                return final('child result')
+            done = outputs(body)
+            if phase == 0:
+                if not done:
+                    return response([call('spawn_agent', {'prompt': 'resumable child', 'role': 'explore', 'background': False}, 'spawn')])
+                return final()
+            task = json.loads(done[0])['task_id']
+            return response([call('followup_agent', {'task_id': task, 'message': 'continue'}, 'follow'), call('task_status', {'task_id': task, 'wait_ms': 30000}, 'wait')])
+        async with Harness(model) as h:
+            await h.initialize()
+            session = await h.session()
+            await h.prompt(session, 'initial turn')
+            phase = 1
+            prompt = asyncio.create_task(h.prompt(session, 'resume turn'))
+            await asyncio.wait_for(child_running.wait(), 5)
+            await h.rpc('session/cancel', {'sessionId': session})
+            result = await prompt
+            self.assertEqual(result['result']['stopReason'], 'cancelled')
+            for _ in range(50):
+                tasks = (await h.rpc('_harness/tasks', {'sessionId': session}))['result']['tasks']
+                if tasks[0]['status'] == 'cancelled':
+                    break
+                await asyncio.sleep(.01)
+            self.assertEqual(tasks[0]['status'], 'cancelled')
+
     async def test_interactive_terminal_approvals_resize_input_and_output(self):
         command = "if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)" if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
         async def model(body):

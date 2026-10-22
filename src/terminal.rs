@@ -35,6 +35,13 @@ struct Resize {
     response: oneshot::Sender<Result<()>>,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+struct ProtocolReplies {
+    sender: std::sync::mpsc::SyncSender<Vec<u8>>,
+    dimensions: Arc<std::sync::atomic::AtomicU32>,
+    cancel: CancellationToken,
+}
+
 pub fn definitions() -> Vec<Value> {
     let function = |name: &str, description: &str, properties: Value| {
         let required: Vec<_> = properties
@@ -333,26 +340,6 @@ pub(crate) async fn start(
     let job = jobs
         .reserve("terminal", parent, cancel.child_token())
         .await?;
-    let directory = cwd.to_owned();
-    let command = command.to_owned();
-    let spawned = match tokio::task::spawn_blocking(move || spawn(&directory, &command, size)).await
-    {
-        Ok(result) => result,
-        Err(error) => Err(anyhow::anyhow!("Terminal start interrupted: {error}")),
-    };
-    let spawned = match spawned {
-        Ok(spawned) => spawned,
-        Err(error) => {
-            job.finish("failed", format!("{error:#}"), None, limit)
-                .await;
-            return Err(error);
-        }
-    };
-    if job.cancel.is_cancelled() {
-        drop(spawned);
-        job.finish("cancelled", String::new(), None, limit).await;
-        bail!("Cancelled");
-    }
     let (input, writer_rx) = std::sync::mpsc::sync_channel(1);
     let (resize, resize_rx) = mpsc::channel(4);
     let (output_tx, output_rx) = mpsc::channel(4);
@@ -360,32 +347,90 @@ pub(crate) async fn start(
     let writer_cancel = job.cancel.clone();
     let writer_stop = reader_stop.clone();
     let reader_cancel = reader_stop.clone();
-    let Spawned {
-        process,
-        reader,
-        writer,
-    } = spawned;
-    // Persistent PTY I/O gets small dedicated stacks, never Tokio's shared blocking pool.
+    #[cfg(windows)]
+    let (protocol_tx, protocol_rx) = std::sync::mpsc::sync_channel(8);
+    #[cfg(windows)]
+    let dimensions = Some(Arc::new(std::sync::atomic::AtomicU32::new(
+        (u32::from(size.rows) << 16) | u32::from(size.cols),
+    )));
+    #[cfg(not(windows))]
+    let dimensions: Option<Arc<std::sync::atomic::AtomicU32>> = None;
+    #[cfg(windows)]
+    let protocol_replies = Some(ProtocolReplies {
+        sender: protocol_tx,
+        dimensions: dimensions.as_ref().unwrap().clone(),
+        cancel: job.cancel.clone(),
+    });
+    #[cfg(not(windows))]
+    let protocol_replies = None;
+    #[cfg(windows)]
+    let protocol_input = Some(protocol_rx);
+    #[cfg(not(windows))]
+    let protocol_input = None;
+    let (reader_handle, reader_rx) = std::sync::mpsc::sync_channel::<Box<dyn Read + Send>>(1);
+    let (writer_handle, writer_handle_rx) =
+        std::sync::mpsc::sync_channel::<Box<dyn Write + Send>>(1);
+    // Allocate persistent workers BEFORE ConPTY exists. A thread-creation failure
+    // cannot strand an inherit-cursor handshake or block the async runtime closing it.
     let reader_thread = std::thread::Builder::new()
         .name("piko-pty-read".into())
         .stack_size(128 * 1024)
-        .spawn(move || read_output(reader, output_tx, reader_cancel));
+        .spawn(move || {
+            if let Ok(reader) = reader_rx.recv() {
+                read_output(reader, output_tx, reader_cancel, protocol_replies);
+            }
+        });
     if let Err(error) = reader_thread {
-        drop(process);
         job.finish("failed", error.to_string(), None, limit).await;
         return Err(error.into());
     }
     let writer_thread = std::thread::Builder::new()
         .name("piko-pty-write".into())
         .stack_size(128 * 1024)
-        .spawn(move || write_input(writer, writer_rx, writer_cancel, writer_stop));
+        .spawn(move || {
+            if let Ok(writer) = writer_handle_rx.recv() {
+                write_input(
+                    writer,
+                    writer_rx,
+                    writer_cancel,
+                    writer_stop,
+                    protocol_input,
+                );
+            }
+        });
     if let Err(error) = writer_thread {
-        // A full output queue must not stall ConPTY teardown after thread creation fails.
-        drop(output_rx);
-        reader_stop.cancel();
-        drop(process);
         job.finish("failed", error.to_string(), None, limit).await;
         return Err(error.into());
+    }
+    let directory = cwd.to_owned();
+    let command = command.to_owned();
+    let spawned = match tokio::task::spawn_blocking(move || spawn(&directory, &command, size)).await
+    {
+        Ok(result) => result,
+        Err(error) => Err(anyhow::anyhow!("Terminal start interrupted: {error}")),
+    };
+    let Spawned {
+        process,
+        reader,
+        writer,
+    } = match spawned {
+        Ok(spawned) => spawned,
+        Err(error) => {
+            job.finish("failed", format!("{error:#}"), None, limit)
+                .await;
+            return Err(error);
+        }
+    };
+    // Workers are already waiting and these one-slot channels are empty.
+    // Hand them the pipes even after cancellation so the initial ConPTY handshake
+    // can complete during bounded teardown on the blocking worker.
+    if reader_handle.send(reader).is_err() || writer_handle.send(writer).is_err() {
+        reader_stop.cancel();
+        job.cancel.cancel();
+        let _cleanup = tokio::task::spawn_blocking(move || drop(process));
+        job.finish("failed", "Terminal I/O worker stopped".into(), None, limit)
+            .await;
+        bail!("Terminal I/O worker stopped");
     }
     *job.terminal.lock().await = Some(Arc::new(Terminal { input, resize }));
     let monitor_job = job.clone();
@@ -402,9 +447,13 @@ pub(crate) async fn start(
             limit,
             monitor_peer,
             monitor_session,
+            dimensions,
         )
         .await;
     });
+    if job.cancel.is_cancelled() {
+        bail!("Cancelled");
+    }
     peer.task_event(
         session,
         &job.id,
@@ -418,13 +467,36 @@ fn read_output(
     mut reader: Box<dyn Read + Send>,
     sender: mpsc::Sender<Vec<u8>>,
     stop: CancellationToken,
+    replies: Option<ProtocolReplies>,
 ) {
+    #[cfg(windows)]
+    let mut protocol = Protocol::default();
+    #[cfg(not(windows))]
+    let _ = replies;
     let mut buffer = [0u8; 4096];
     let mut discard = false;
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => {
+                #[cfg(windows)]
+                if let Some(replies) = &replies {
+                    let dimensions = replies
+                        .dimensions
+                        .load(std::sync::atomic::Ordering::Acquire);
+                    protocol.resize((dimensions >> 16) as u16, dimensions as u16);
+                    match protocol.push(&buffer[..count]) {
+                        Ok(response) if !response.is_empty() => {
+                            if replies.sender.try_send(response).is_err() {
+                                replies.cancel.cancel();
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(_) => {
+                            replies.cancel.cancel();
+                        }
+                    }
+                }
                 if !discard && sender.blocking_send(buffer[..count].to_vec()).is_err() {
                     discard = true;
                 }
@@ -458,12 +530,59 @@ fn write_input(
     receiver: std::sync::mpsc::Receiver<Input>,
     cancel: CancellationToken,
     stop: CancellationToken,
+    protocols: Option<std::sync::mpsc::Receiver<Vec<u8>>>,
 ) {
-    while !cancel.is_cancelled() && !stop.is_cancelled() {
-        let input = match receiver.recv_timeout(Duration::from_millis(100)) {
-            Ok(input) => input,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+    let mut shutdown = None;
+    loop {
+        let stopping = cancel.is_cancelled() || stop.is_cancelled() || shutdown.is_some();
+        if stopping && protocols.is_none() {
+            break;
+        }
+        if stopping {
+            let deadline = shutdown.get_or_insert_with(|| Instant::now() + IO_TIMEOUT);
+            if Instant::now() >= *deadline {
+                break;
+            }
+        }
+        // Control replies have their own bounded queue and always precede ordinary input.
+        let protocol = protocols.as_ref().and_then(|queue| queue.try_recv().ok());
+        let (input, control) = if let Some(data) = protocol {
+            (
+                Input {
+                    data,
+                    response: oneshot::channel().0,
+                },
+                true,
+            )
+        } else if stopping {
+            match protocols
+                .as_ref()
+                .unwrap()
+                .recv_timeout(Duration::from_millis(20))
+            {
+                Ok(data) => (
+                    Input {
+                        data,
+                        response: oneshot::channel().0,
+                    },
+                    true,
+                ),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            let delay = if protocols.is_some() { 20 } else { 100 };
+            match receiver.recv_timeout(Duration::from_millis(delay)) {
+                Ok(input) => (input, false),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if protocols.is_none() {
+                        break;
+                    }
+                    shutdown = Some(Instant::now() + IO_TIMEOUT);
+                    continue;
+                }
+            }
         };
         // ConPTY interprets carriage return as Enter. Accept ordinary LF/CRLF
         // tool input consistently without expanding its byte budget.
@@ -480,7 +599,8 @@ fn write_input(
         let result: Result<()> = (|| {
             while written < input.data.len() {
                 ensure!(
-                    !cancel.is_cancelled() && !stop.is_cancelled() && Instant::now() < deadline,
+                    (control || (!cancel.is_cancelled() && !stop.is_cancelled()))
+                        && Instant::now() < deadline,
                     "Terminal input cancelled or timed out"
                 );
                 match writer.write(&input.data[written..]) {
@@ -501,9 +621,198 @@ fn write_input(
         if failed {
             cancel.cancel();
         }
-        if cancel.is_cancelled() {
+        if failed && control {
             break;
         }
+    }
+}
+
+// portable-pty enables ConPTY cursor inheritance. Microsoft requires answering
+// CPR and DA1 on the input pipe; otherwise even startup/ClosePseudoConsole can hang.
+// This is a bounded query responder/cursor tracker for text capture, not a screen grid.
+// https://learn.microsoft.com/windows/console/createpseudoconsole
+#[cfg(any(windows, test))]
+struct Protocol {
+    state: u8,
+    sequence: [u8; 32],
+    length: usize,
+    row: u16,
+    col: u16,
+    rows: u16,
+    cols: u16,
+    saved: (u16, u16),
+    decoder: Decoder,
+    window: Instant,
+    queries: usize,
+}
+#[cfg(any(windows, test))]
+impl Default for Protocol {
+    fn default() -> Self {
+        Self {
+            state: 0,
+            sequence: [0; 32],
+            length: 0,
+            row: 1,
+            col: 1,
+            rows: 24,
+            cols: 80,
+            saved: (1, 1),
+            decoder: Decoder::default(),
+            window: Instant::now(),
+            queries: 0,
+        }
+    }
+}
+#[cfg(any(windows, test))]
+impl Protocol {
+    fn resize(&mut self, rows: u16, cols: u16) {
+        self.rows = rows.max(1);
+        self.cols = cols.max(1);
+        self.row = self.row.min(self.rows);
+        self.col = self.col.min(self.cols);
+    }
+    fn push(&mut self, bytes: &[u8]) -> Result<Vec<u8>> {
+        if self.window.elapsed() >= Duration::from_secs(1) {
+            self.window = Instant::now();
+            self.queries = 0;
+        }
+        let mut replies = Vec::new();
+        for ch in self.decoder.push(bytes).chars() {
+            match self.state {
+                0 => match ch {
+                    '\x1b' => self.state = 1,
+                    '\r' => self.col = 1,
+                    '\n' => self.row = (self.row + 1).min(self.rows),
+                    '\x08' => self.col = self.col.saturating_sub(1).max(1),
+                    '\t' => self.col = (((self.col - 1) / 8 + 1) * 8 + 1).min(self.cols),
+                    ch if !ch.is_control() => {
+                        if self.col == self.cols {
+                            self.col = 1;
+                            self.row = (self.row + 1).min(self.rows);
+                        } else {
+                            self.col += 1;
+                        }
+                    }
+                    _ => {}
+                },
+                1 => match ch {
+                    '[' => {
+                        self.state = 2;
+                        self.length = 0;
+                    }
+                    ']' => self.state = 3,
+                    'P' | '^' | '_' => self.state = 5,
+                    '7' => {
+                        self.saved = (self.row, self.col);
+                        self.state = 0;
+                    }
+                    '8' => {
+                        (self.row, self.col) = self.saved;
+                        self.state = 0;
+                    }
+                    'D' => {
+                        self.row = (self.row + 1).min(self.rows);
+                        self.state = 0;
+                    }
+                    'E' => {
+                        self.row = (self.row + 1).min(self.rows);
+                        self.col = 1;
+                        self.state = 0;
+                    }
+                    'M' => {
+                        self.row = self.row.saturating_sub(1).max(1);
+                        self.state = 0;
+                    }
+                    '\x1b' => {}
+                    _ => self.state = 0,
+                },
+                2 => {
+                    if ('@'..='~').contains(&ch) {
+                        if let Some(response) = self.csi(ch) {
+                            self.queries += 1;
+                            ensure!(
+                                self.queries <= 64 && replies.len() + response.len() <= 512,
+                                "Terminal query flood"
+                            );
+                            replies.extend_from_slice(response.as_bytes());
+                        }
+                        self.state = 0;
+                    } else if ch.is_ascii() && self.length < self.sequence.len() {
+                        self.sequence[self.length] = ch as u8;
+                        self.length += 1;
+                    } else {
+                        self.state = 7;
+                    }
+                }
+                // OSC ends with BEL or ST; other terminal strings only end with ST.
+                3 => match ch {
+                    '\x07' => self.state = 0,
+                    '\x1b' => self.state = 4,
+                    _ => {}
+                },
+                4 => self.state = if ch == '\\' { 0 } else { 3 },
+                5 => {
+                    if ch == '\x1b' {
+                        self.state = 6;
+                    }
+                }
+                6 => self.state = if ch == '\\' { 0 } else { 5 },
+                _ => {
+                    if ('@'..='~').contains(&ch) {
+                        self.state = 0;
+                    }
+                }
+            }
+        }
+        Ok(replies)
+    }
+    fn csi(&mut self, final_byte: char) -> Option<String> {
+        let parameters = std::str::from_utf8(&self.sequence[..self.length]).unwrap_or("");
+        match (parameters, final_byte) {
+            ("6", 'n') => return Some(format!("\x1b[{};{}R", self.row, self.col)),
+            ("?6", 'n') => return Some(format!("\x1b[?{};{}R", self.row, self.col)),
+            ("5", 'n') => return Some("\x1b[0n".into()),
+            ("" | "0", 'c') => return Some("\x1b[?1;0c".into()),
+            (">" | ">0", 'c') => return Some("\x1b[>0;0;0c".into()),
+            _ => {}
+        }
+        if !parameters
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b';')
+        {
+            return None;
+        }
+        let mut values = parameters
+            .split(';')
+            .map(|value| value.parse::<u16>().unwrap_or(1).max(1));
+        let first = values.next().unwrap_or(1);
+        match final_byte {
+            'H' | 'f' => {
+                self.row = first.min(self.rows);
+                self.col = values.next().unwrap_or(1).min(self.cols);
+            }
+            'A' => self.row = self.row.saturating_sub(first).max(1),
+            'B' => self.row = self.row.saturating_add(first).min(self.rows),
+            'C' => self.col = self.col.saturating_add(first).min(self.cols),
+            'D' => self.col = self.col.saturating_sub(first).max(1),
+            'E' => {
+                self.row = self.row.saturating_add(first).min(self.rows);
+                self.col = 1;
+            }
+            'F' => {
+                self.row = self.row.saturating_sub(first).max(1);
+                self.col = 1;
+            }
+            'G' => self.col = first.min(self.cols),
+            'd' => self.row = first.min(self.rows),
+            's' => self.saved = (self.row, self.col),
+            'u' => {
+                self.row = self.saved.0.min(self.rows);
+                self.col = self.saved.1.min(self.cols);
+            }
+            _ => {}
+        }
+        None
     }
 }
 
@@ -548,6 +857,7 @@ async fn monitor(
     limit: usize,
     peer: Peer,
     session: String,
+    dimensions: Option<Arc<std::sync::atomic::AtomicU32>>,
 ) {
     let deadline = tokio::time::sleep(Duration::from_secs(timeout));
     tokio::pin!(deadline);
@@ -559,7 +869,13 @@ async fn monitor(
             biased;
             _ = job.cancel.cancelled() => break ("cancelled", None),
             _ = &mut deadline => break ("timed_out", None),
-            Some(request) = resize.recv() => { let result = process.master.as_ref().context("Terminal closed").and_then(|master|master.resize(request.size)); let _ = request.response.send(result); },
+            Some(request) = resize.recv() => {
+                let result = process.master.as_ref().context("Terminal closed").and_then(|master|master.resize(request.size));
+                if result.is_ok() && let Some(dimensions) = &dimensions {
+                    dimensions.store((u32::from(request.size.rows) << 16) | u32::from(request.size.cols), std::sync::atomic::Ordering::Release);
+                }
+                let _ = request.response.send(result);
+            },
             chunk = output.recv(), if output_open => match chunk { Some(bytes) => job.append_output(&decoder.push(&bytes), limit).await, None => output_open = false },
             _ = poll.tick() => match process.child.try_wait() {
                 Ok(Some(exit)) => break (if exit.success() { "completed" } else { "failed" }, i32::try_from(exit.exit_code()).ok()),
@@ -715,7 +1031,7 @@ mod tests {
         .unwrap();
         let id = snapshot["task_id"].as_str().unwrap();
         let job = jobs.get(id).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        let ready = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let snapshot = jobs
                     .status(id, Some("owner"), 1000, &CancellationToken::new())
@@ -727,8 +1043,12 @@ mod tests {
                 assert_eq!(snapshot["status"], "running", "{snapshot}");
             }
         })
-        .await
-        .unwrap();
+        .await;
+        assert!(
+            ready.is_ok(),
+            "Terminal failed to become ready: {}",
+            job.snapshot().await
+        );
         assert!(
             jobs.status(id, Some("different-owner"), 0, &CancellationToken::new())
                 .await
@@ -907,6 +1227,7 @@ mod lifecycle_tests {
                 receiver,
                 CancellationToken::new(),
                 worker_stop,
+                None,
             )
         });
         stop.cancel();
@@ -991,5 +1312,102 @@ mod lifecycle_tests {
             "{finished}"
         );
         events.abort();
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    #[test]
+    fn conpty_initial_cpr_and_da1_are_answered_across_every_split() {
+        let request = b"\x1b[6n\x1b[c";
+        for split in 0..=request.len() {
+            let mut protocol = Protocol::default();
+            let mut response = protocol.push(&request[..split]).unwrap();
+            response.extend(protocol.push(&request[split..]).unwrap());
+            assert_eq!(response, b"\x1b[1;1R\x1b[?1;0c");
+        }
+    }
+
+    #[test]
+    fn cursor_queries_are_bounded_and_ignored_inside_terminal_strings() {
+        let mut protocol = Protocol::default();
+        protocol.resize(39, 105);
+        assert_eq!(
+            protocol
+                .push(b"hello\r\n\x1b[8;10H\x1b[?6n\x1b[5n")
+                .unwrap(),
+            b"\x1b[?8;10R\x1b[0n"
+        );
+        assert!(
+            protocol
+                .push(b"\x1b]2;title\x1b[6n\x07\x1bPignored\x1b[c\x1b\\")
+                .unwrap()
+                .is_empty()
+        );
+        let mut oversized = b"\x1b[".to_vec();
+        oversized.extend(vec![b'1'; 1000]);
+        oversized.extend(b"n\x1b[6n");
+        assert_eq!(protocol.push(&oversized).unwrap(), b"\x1b[8;10R");
+        assert!(protocol.length <= 32);
+        assert!(Protocol::default().push(&b"\x1b[6n".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn fixed_protocol_replies_precede_queued_model_input_and_survive_cancellation() {
+        struct Writer {
+            bytes: Arc<std::sync::Mutex<Vec<u8>>>,
+            written: std::sync::mpsc::Sender<()>,
+        }
+        impl Write for Writer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.bytes.lock().unwrap().extend_from_slice(bytes);
+                let _ = self.written.send(());
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (input, receiver) = std::sync::mpsc::sync_channel(1);
+        let (control, protocols) = std::sync::mpsc::sync_channel(8);
+        let (written, received) = std::sync::mpsc::channel();
+        input
+            .send(Input {
+                data: b"USER".to_vec(),
+                response: oneshot::channel().0,
+            })
+            .unwrap();
+        control.send(b"\x1b[1;1R\x1b[?1;0c".to_vec()).unwrap();
+        let cancel = CancellationToken::new();
+        let stop = CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let worker_stop = stop.clone();
+        let output = bytes.clone();
+        let worker = std::thread::spawn(move || {
+            write_input(
+                Box::new(Writer {
+                    bytes: output,
+                    written,
+                }),
+                receiver,
+                worker_cancel,
+                worker_stop,
+                Some(protocols),
+            )
+        });
+        received.recv_timeout(Duration::from_secs(1)).unwrap();
+        received.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(*bytes.lock().unwrap(), b"\x1b[1;1R\x1b[?1;0cUSER");
+        cancel.cancel();
+        stop.cancel();
+        // ConPTY may still need a reply during ClosePseudoConsole.
+        control.send(b"\x1b[1;1R".to_vec()).unwrap();
+        received.recv_timeout(Duration::from_secs(1)).unwrap();
+        drop(control);
+        worker.join().unwrap();
+        assert!(bytes.lock().unwrap().ends_with(b"\x1b[1;1R"));
     }
 }
