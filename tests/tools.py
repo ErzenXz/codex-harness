@@ -151,6 +151,13 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_interactive_terminal_approvals_resize_input_and_output(self):
         command = "if ([Console]::IsInputRedirected) {exit 9}; [Console]::Write('ready>'); $line = [Console]::ReadLine(); [Console]::WriteLine('reply:' + $line)" if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
+        await self._terminal_roundtrip(command)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell host API')
+    async def test_windows_powershell_read_host_roundtrip(self):
+        await self._terminal_roundtrip("if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)")
+
+    async def _terminal_roundtrip(self, command):
         async def model(body):
             done = outputs(body)
             if not done:
