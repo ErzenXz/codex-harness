@@ -7,6 +7,7 @@ No screenshots are written to disk or printed. Python standard library only.
 import asyncio
 import base64
 import json
+import ntpath
 import os
 from pathlib import Path
 import random
@@ -152,6 +153,11 @@ def windows_desktop_diagnostics(fixture=None):
     user.GetUserObjectInformationW.argtypes = [W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.POINTER(W.DWORD)]
     kernel.ProcessIdToSessionId.argtypes = [W.DWORD, C.POINTER(W.DWORD)]
     kernel.GetCurrentThreadId.restype = W.DWORD
+    kernel.WTSGetActiveConsoleSessionId.restype = W.DWORD
+    kernel.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
+    kernel.OpenProcess.restype = W.HANDLE
+    kernel.CloseHandle.argtypes = [W.HANDLE]
+    kernel.QueryFullProcessImageNameW.argtypes = [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)]
     for name in ('IsWindowVisible', 'IsWindowEnabled', 'IsIconic'):
         getattr(user, name).argtypes = [W.HWND]
 
@@ -166,6 +172,79 @@ def windows_desktop_diagnostics(fixture=None):
         if not user.GetUserObjectInformationW(handle, 2, buffer, C.sizeof(buffer), C.byref(size)):
             return {'error': C.get_last_error()}
         return buffer.value
+
+    def process_metadata(pid):
+        """Only basename/integrity/session; never expose executable directories."""
+        if not pid:
+            return None
+        advapi = C.WinDLL('advapi32', use_last_error=True)
+        advapi.OpenProcessToken.argtypes = [W.HANDLE, W.DWORD, C.POINTER(W.HANDLE)]
+        advapi.GetTokenInformation.argtypes = [W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.POINTER(W.DWORD)]
+        advapi.GetSidSubAuthorityCount.argtypes = [C.c_void_p]
+        advapi.GetSidSubAuthorityCount.restype = C.POINTER(C.c_ubyte)
+        advapi.GetSidSubAuthority.argtypes = [C.c_void_p, W.DWORD]
+        advapi.GetSidSubAuthority.restype = C.POINTER(W.DWORD)
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return {'open_process_error': C.get_last_error()}
+        token = W.HANDLE()
+        metadata = {}
+        try:
+            path, size = C.create_unicode_buffer(32768), W.DWORD(32768)
+            if kernel.QueryFullProcessImageNameW(handle, 0, path, C.byref(size)):
+                metadata['basename'] = ntpath.basename(path.value)
+            else:
+                metadata['image_name_error'] = C.get_last_error()
+            process_session = W.DWORD()
+            if kernel.ProcessIdToSessionId(pid, C.byref(process_session)):
+                metadata['session_id'] = process_session.value
+            if not advapi.OpenProcessToken(handle, 8, C.byref(token)):
+                metadata['token_error'] = C.get_last_error()
+                return metadata
+            required = W.DWORD()
+            advapi.GetTokenInformation(token, 25, None, 0, C.byref(required))
+            if not 0 < required.value <= 65536:
+                metadata['integrity_error'] = C.get_last_error()
+                return metadata
+            information = C.create_string_buffer(required.value)
+            if advapi.GetTokenInformation(token, 25, information, len(information), C.byref(required)):
+                # TOKEN_MANDATORY_LABEL begins with SID_AND_ATTRIBUTES.Sid.
+                sid = C.cast(information, C.POINTER(C.c_void_p))[0]
+                count = advapi.GetSidSubAuthorityCount(sid)[0]
+                rid = advapi.GetSidSubAuthority(sid, count - 1)[0]
+                metadata['integrity_rid'] = rid
+                metadata['integrity'] = {0: 'untrusted', 0x1000: 'low', 0x2000: 'medium',
+                    0x2100: 'medium_plus', 0x3000: 'high', 0x4000: 'system',
+                    0x5000: 'protected'}.get(rid, 'other')
+            else:
+                metadata['integrity_error'] = C.get_last_error()
+            return metadata
+        finally:
+            if token:
+                kernel.CloseHandle(token)
+            kernel.CloseHandle(handle)
+
+    def session_metadata(ident):
+        wts = C.WinDLL('wtsapi32', use_last_error=True)
+        wts.WTSQuerySessionInformationW.argtypes = [W.HANDLE, W.DWORD, C.c_int,
+                                                   C.POINTER(C.c_void_p), C.POINTER(W.DWORD)]
+        wts.WTSFreeMemory.argtypes = [C.c_void_p]
+        metadata = {}
+        for kind, key in ((6, 'station_name'), (8, 'connection_state')):
+            buffer, size = C.c_void_p(), W.DWORD()
+            if not wts.WTSQuerySessionInformationW(None, ident, kind, C.byref(buffer), C.byref(size)):
+                metadata[key + '_error'] = C.get_last_error()
+                continue
+            try:
+                if kind == 6 and 0 < size.value <= 32768:
+                    metadata[key] = C.wstring_at(buffer, size.value // C.sizeof(C.c_wchar)).rstrip('\0')
+                elif kind == 8 and size.value >= C.sizeof(C.c_int):
+                    state = C.cast(buffer, C.POINTER(C.c_int))[0]
+                    metadata[key] = ['active', 'connected', 'connect_query', 'shadow', 'disconnected',
+                                     'idle', 'listen', 'reset', 'down', 'init'][state] if 0 <= state <= 9 else state
+            finally:
+                wts.WTSFreeMemory(buffer)
+        return metadata
 
     class USEROBJECTFLAGS(C.Structure):
         _fields_ = [('inherit', W.BOOL), ('reserved', W.BOOL), ('flags', W.DWORD)]
@@ -186,6 +265,10 @@ def windows_desktop_diagnostics(fixture=None):
     try:
         diagnostics = {
             'process_id': os.getpid(), 'session_id': session.value if session_ok else None,
+            'process': process_metadata(os.getpid()),
+            'foreground_process': process_metadata(foreground_pid.value),
+            'active_console_session_id': kernel.WTSGetActiveConsoleSessionId(),
+            'wts_session': session_metadata(session.value) if session_ok else None,
             'pointer_bits': C.sizeof(C.c_void_p) * 8,
             'window_station': object_name(station), 'window_station_visible': visible,
             'thread_desktop': object_name(user.GetThreadDesktop(kernel.GetCurrentThreadId())),
@@ -356,7 +439,11 @@ class WindowsFixture:
                 attached = False
                 try:
                     if foreground_thread and foreground_thread != current_thread:
+                        C.set_last_error(0)
                         attached = bool(user.AttachThreadInput(current_thread, foreground_thread, True))
+                        attach_error = C.get_last_error()
+                    else:
+                        attach_error = None
                     user.ShowWindow(self.hwnd, 9)
                     user.BringWindowToTop(self.hwnd)
                     user.SetActiveWindow(self.hwnd)
@@ -365,7 +452,8 @@ class WindowsFixture:
                     activation_error = C.get_last_error()
                     user.SetFocus(self.hwnd)
                     self.activation_attempts.append({'foreground_thread_id': foreground_thread,
-                        'attached': attached, 'activated': activated, 'error': activation_error})
+                        'attached': attached, 'attach_error': attach_error,
+                        'activated': activated, 'error': activation_error})
                 finally:
                     if attached:
                         user.AttachThreadInput(current_thread, foreground_thread, False)
@@ -391,6 +479,28 @@ class WindowsFixture:
             raise AssertionError('Fixture lost foreground; refusing to send desktop input elsewhere. '
                                  + json.dumps(windows_desktop_diagnostics(self), sort_keys=True))
 
+    def require_bootstrap_target(self, x, y):
+        """Permit only this fixture's visible center for the initial native click."""
+        import ctypes as C
+        from ctypes import wintypes as W
+        if self.error:
+            raise self.error
+        diagnostics = windows_desktop_diagnostics(self)
+        if not (diagnostics['window_station_visible']
+                and diagnostics['input_desktop_open']
+                and diagnostics['input_desktop'] == diagnostics['fixture_desktop'] == 'Default'):
+            raise AssertionError('Fixture is not on the active visible Default desktop. '
+                                 + json.dumps(diagnostics, sort_keys=True))
+        self.user.WindowFromPoint.argtypes = [W.POINT]
+        self.user.WindowFromPoint.restype = W.HWND
+        self.user.IsWindowVisible.argtypes = [W.HWND]
+        self.user.IsWindowEnabled.argtypes = [W.HWND]
+        hit = self.user.WindowFromPoint(W.POINT(x, y))
+        if not (0 <= x < self.width and 0 <= y < self.height and hit == self.hwnd
+                and self.user.IsWindowVisible(self.hwnd) and self.user.IsWindowEnabled(self.hwnd)):
+            raise AssertionError('Initial native pointer target is not the owned visible fixture; refusing input. '
+                                 + json.dumps({'hit_hwnd': int(hit or 0), **diagnostics}, sort_keys=True))
+
     def __exit__(self, *_):
         self.user.PostMessageW(self.hwnd, 0x10, 0, 0)
         self.thread.join(5)
@@ -404,7 +514,7 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
     async def test_capture_and_real_input_roundtrip(self):
         with WindowsFixture() as fixture:
             await asyncio.sleep(.25)
-            fixture.require_foreground()
+            fixture.require_bootstrap_target(fixture.width // 2, fixture.height // 2)
             screenshot_size = None
             actions = [
                 {'action': 'screenshot'}, {'action': 'move'}, {'action': 'click'},
@@ -438,15 +548,49 @@ class WindowsNative(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual((geometry['width'], geometry['height']), screenshot_size)
                         self.assertEqual((geometry['native_width'], geometry['native_height']),
                                          (fixture.width, fixture.height))
+                if len(done) == 3:
+                    # The one real Piko left click must activate our own window.
+                    deadline = time.monotonic() + 2
+                    while fixture.user.GetForegroundWindow() != fixture.hwnd and time.monotonic() < deadline:
+                        await asyncio.sleep(.025)
+                    fixture.require_foreground()
                 if len(done) == len(actions):
                     return final()
-                fixture.require_foreground()
                 action = dict(actions[len(done)])
                 if action['action'] in ('move', 'click', 'double_click'):
                     action.update(x=screenshot_size[0] // 2, y=screenshot_size[1] // 2)
+                if len(done) <= 2:
+                    x = (action.get('x', 0) * fixture.width // screenshot_size[0]
+                         if screenshot_size else fixture.width // 2)
+                    y = (action.get('y', 0) * fixture.height // screenshot_size[1]
+                         if screenshot_size else fixture.height // 2)
+                    fixture.require_bootstrap_target(x, y)
+                else:
+                    fixture.require_foreground()
                 return response([call('computer_use', action, f'native-{len(done)}')])
             failures = []
             async with Harness(checked_model(model, failures), extra='computer_use = true\n') as harness:
+                async def guard(permission):
+                    try:
+                        index = len(harness.permissions) - 1
+                        args = permission['params']['toolCall']['rawInput']
+                        if index <= 2:
+                            self.assertEqual(args['action'], ('screenshot', 'move', 'click')[index])
+                            if index == 2:
+                                self.assertEqual(args.get('button', 'left'), 'left')
+                            x = (args.get('x', 0) * fixture.width // screenshot_size[0]
+                                 if screenshot_size else fixture.width // 2)
+                            y = (args.get('y', 0) * fixture.height // screenshot_size[1]
+                                 if screenshot_size else fixture.height // 2)
+                            # Recheck the exact scaled native target immediately
+                            # before approval; never send a bootstrap click elsewhere.
+                            fixture.require_bootstrap_target(x, y)
+                        else:
+                            fixture.require_foreground()
+                    except Exception as error:
+                        failures.append(error)
+                        harness.allow = False
+                harness.permission_hook = guard
                 await harness.initialize()
                 result = await harness.prompt(await harness.session())
                 if failures:

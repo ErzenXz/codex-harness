@@ -399,7 +399,6 @@ pub fn screenshot(mut width: u32, mut height: u32, limit: usize) -> Result<Vec<u
 fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
     let _dpi = Dpi::enter()?;
     interactive()?;
-    let api = gdi_api()?;
     let (sw, sh) = dimensions()?;
     let screen = Screen(unsafe { GetDC(null_mut()) });
     if screen.0.is_null() {
@@ -443,6 +442,11 @@ fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
         return Err(win_error("Screen capture failed"));
     }
     drop(selection);
+    encode_bitmap(bitmap.0, 4 * 1024 * 1024)
+}
+
+fn encode_bitmap(bitmap: Handle, limit: usize) -> Result<Vec<u8>> {
+    let api = gdi_api()?;
     let mut token = 0;
     let startup = Startup {
         version: 1,
@@ -457,7 +461,7 @@ fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
     let _gdi = Gdi { token, api };
     let mut raw_image = null_mut();
     ensure!(
-        unsafe { (api.create_bitmap)(bitmap.0, null_mut(), &mut raw_image) } == 0
+        unsafe { (api.create_bitmap)(bitmap, null_mut(), &mut raw_image) } == 0
             && !raw_image.is_null(),
         "Could not prepare screenshot for JPEG encoding"
     );
@@ -497,7 +501,7 @@ fn screenshot_once(width: u32, height: u32) -> Result<Vec<u8>> {
         unsafe { (api.save_image)(image.handle, stream.0, &jpeg, &parameters) } == 0,
         "Windows JPEG encoding failed"
     );
-    stream.bytes(4 * 1024 * 1024)
+    stream.bytes(limit)
 }
 fn keyboard(vk: u16, scan: u16, flags: u32) -> Input {
     Input {
@@ -717,6 +721,49 @@ pub fn scroll(direction: &str, amount: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[link(name = "gdi32")]
+    unsafe extern "system" {
+        fn CreateBitmap(
+            width: i32,
+            height: i32,
+            planes: u32,
+            bits: u32,
+            pixels: *const c_void,
+        ) -> Handle;
+    }
+
+    #[test]
+    fn native_jpeg_encoder_uses_only_private_pixels() {
+        // This deliberately has no GetDC, screenshot, window or input calls:
+        // service/headless runners can exercise the actual Windows codec ABI.
+        let mut pixels = [0u8; 16 * 16 * 4];
+        for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+            pixel.copy_from_slice(&[(index % 16 * 16) as u8, (index / 16 * 16) as u8, 80, 0]);
+        }
+        for _ in 0..3 {
+            let bitmap = Bitmap(unsafe { CreateBitmap(16, 16, 1, 32, pixels.as_ptr().cast()) });
+            assert!(
+                !bitmap.0.is_null(),
+                "Could not allocate private synthetic GDI bitmap"
+            );
+            let bytes = encode_bitmap(bitmap.0, 96 * 1024).unwrap();
+            assert!(
+                bytes.len() <= 96 * 1024
+                    && bytes.starts_with(&[0xff, 0xd8])
+                    && bytes.ends_with(&[0xff, 0xd9])
+            );
+            assert_eq!(
+                crate::multimodal::image_dimensions("image/jpeg", &bytes),
+                Some((16, 16))
+            );
+            assert!(
+                encode_bitmap(bitmap.0, 1).is_err(),
+                "Stream limit must reject oversized JPEGs"
+            );
+        }
+        assert!(std::ptr::eq(gdi_api().unwrap(), gdi_api().unwrap()));
+    }
+
     #[test]
     fn win32_input_abi_and_chords() {
         assert_eq!(
