@@ -162,7 +162,9 @@ class Harness:
                 elif "method" in value:
                     self.updates.append(value)
                 elif value.get("id") in self.pending:
-                    self.pending.pop(value["id"]).set_result(value)
+                    future = self.pending.pop(value["id"])
+                    if not future.done():
+                        future.set_result(value)
                 else:
                     self.unmatched.append(value)
         finally:

@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 import unittest
 from stdio import Harness, call, response, final, FIXTURE_JPEG
 
@@ -158,7 +159,10 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
         await self._terminal_roundtrip("if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)")
 
     async def _terminal_roundtrip(self, command):
+        sent_input = False
+        ready_deadline = time.monotonic() + 12
         async def model(body):
+            nonlocal sent_input
             done = outputs(body)
             if not done:
                 return response([call('terminal_start', {'command': command, 'timeout_secs': 30 if os.name == 'nt' else 10, 'rows': 24, 'cols': 80}, 'start')])
@@ -166,8 +170,13 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(all('error' not in json.loads(value) for value in done))
             if len(done) == 1:
                 return response([call('terminal_resize', {'task_id': task, 'rows': 41, 'cols': 101}, 'resize')])
-            if len(done) == 2:
-                return response([call('terminal_write', {'task_id': task, 'data': 'test-input\n'}, 'write')])
+            if not sent_input:
+                result = json.loads(done[-1])
+                self.assertLess(time.monotonic(), ready_deadline, f'terminal never became ready: {result!r}')
+                if 'ready>' in result.get('output', ''):
+                    sent_input = True
+                    return response([call('terminal_write', {'task_id': task, 'data': 'test-input\n'}, 'write')])
+                return response([call('task_status', {'task_id': task, 'wait_ms': 2000}, f'ready-{len(done)}')])
             if len(done) == 3 or json.loads(done[-1])['status'] == 'running':
                 return response([call('task_status', {'task_id': task, 'wait_ms': 2000}, f'wait-{len(done)}')])
             result = json.loads(done[-1])
