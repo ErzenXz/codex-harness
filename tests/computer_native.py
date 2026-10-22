@@ -134,6 +134,102 @@ class DesktopBoundaries(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(harness.permissions), len(actions))
 
 
+def windows_desktop_diagnostics(fixture=None):
+    """Read desktop/session metadata only; no capture, input, titles or usernames."""
+    import ctypes as C
+    from ctypes import wintypes as W
+    user = C.WinDLL('user32', use_last_error=True)
+    kernel = C.WinDLL('kernel32', use_last_error=True)
+    user.GetProcessWindowStation.restype = W.HANDLE
+    user.GetThreadDesktop.argtypes = [W.DWORD]
+    user.GetThreadDesktop.restype = W.HANDLE
+    user.OpenInputDesktop.argtypes = [W.DWORD, W.BOOL, W.DWORD]
+    user.OpenInputDesktop.restype = W.HANDLE
+    user.CloseDesktop.argtypes = [W.HANDLE]
+    user.GetForegroundWindow.restype = W.HWND
+    user.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
+    user.GetWindowThreadProcessId.restype = W.DWORD
+    user.GetUserObjectInformationW.argtypes = [W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.POINTER(W.DWORD)]
+    kernel.ProcessIdToSessionId.argtypes = [W.DWORD, C.POINTER(W.DWORD)]
+    kernel.GetCurrentThreadId.restype = W.DWORD
+    for name in ('IsWindowVisible', 'IsWindowEnabled', 'IsIconic'):
+        getattr(user, name).argtypes = [W.HWND]
+
+    def object_name(handle):
+        if not handle:
+            return None
+        size = W.DWORD()
+        user.GetUserObjectInformationW(handle, 2, None, 0, C.byref(size))
+        if not 0 < size.value <= 32768:
+            return {'error': C.get_last_error()}
+        buffer = C.create_unicode_buffer((size.value + C.sizeof(C.c_wchar) - 1) // C.sizeof(C.c_wchar))
+        if not user.GetUserObjectInformationW(handle, 2, buffer, C.sizeof(buffer), C.byref(size)):
+            return {'error': C.get_last_error()}
+        return buffer.value
+
+    class USEROBJECTFLAGS(C.Structure):
+        _fields_ = [('inherit', W.BOOL), ('reserved', W.BOOL), ('flags', W.DWORD)]
+
+    station = user.GetProcessWindowStation()
+    flags, size = USEROBJECTFLAGS(), W.DWORD()
+    visible = None
+    if user.GetUserObjectInformationW(station, 1, C.byref(flags), C.sizeof(flags), C.byref(size)):
+        visible = bool(flags.flags & 1)
+    session = W.DWORD()
+    session_ok = kernel.ProcessIdToSessionId(os.getpid(), C.byref(session))
+    foreground = user.GetForegroundWindow()
+    foreground_pid = W.DWORD()
+    foreground_thread = user.GetWindowThreadProcessId(foreground, C.byref(foreground_pid)) if foreground else 0
+    C.set_last_error(0)
+    desktop = user.OpenInputDesktop(0, False, 1)  # DESKTOP_READOBJECTS, never switches desktops.
+    input_error = C.get_last_error() if not desktop else 0
+    try:
+        diagnostics = {
+            'process_id': os.getpid(), 'session_id': session.value if session_ok else None,
+            'pointer_bits': C.sizeof(C.c_void_p) * 8,
+            'window_station': object_name(station), 'window_station_visible': visible,
+            'thread_desktop': object_name(user.GetThreadDesktop(kernel.GetCurrentThreadId())),
+            'input_desktop_open': bool(desktop), 'input_desktop_error': input_error,
+            'input_desktop': object_name(desktop),
+            'foreground_hwnd': int(foreground or 0), 'foreground_pid': foreground_pid.value,
+            'foreground_thread_id': foreground_thread,
+        }
+        if fixture is not None:
+            hwnd = getattr(fixture, 'hwnd', None)
+            thread = getattr(fixture, 'thread_id', None)
+            diagnostics.update({
+                'fixture_hwnd': int(hwnd or 0), 'fixture_thread_id': thread,
+                'fixture_desktop': object_name(user.GetThreadDesktop(thread)) if thread else None,
+                'fixture_foreground': bool(hwnd and foreground == hwnd),
+                'fixture_visible': bool(user.IsWindowVisible(hwnd)) if hwnd else None,
+                'fixture_enabled': bool(user.IsWindowEnabled(hwnd)) if hwnd else None,
+                'fixture_minimized': bool(user.IsIconic(hwnd)) if hwnd else None,
+                'activation_attempts': getattr(fixture, 'activation_attempts', [])[-3:],
+            })
+        return diagnostics
+    finally:
+        if desktop:
+            user.CloseDesktop(desktop)
+
+
+def windows_probe():
+    """No-Piko probe for disposable Windows CI; own window, never input/capture."""
+    if os.name != 'nt':
+        print(json.dumps({'error': 'Windows-only diagnostic probe'}))
+        return
+    report = windows_desktop_diagnostics()
+    try:
+        with WindowsFixture() as fixture:
+            report.update(windows_desktop_diagnostics(fixture))
+            try:
+                fixture.require_foreground()
+            except Exception as error:
+                report['focus_error'] = str(error)
+    except Exception as error:
+        report['fixture_error'] = str(error)
+    print(json.dumps(report, sort_keys=True))
+
+
 class WindowsFixture:
     """A private top-level window that records actual OS-delivered input events."""
     def __enter__(self):
@@ -252,6 +348,8 @@ class WindowsFixture:
             # No synthetic Alt keystroke, unrelated window focus or desktop switch.
             deadline = time.monotonic() + 2
             current_thread = kernel.GetCurrentThreadId()
+            self.thread_id = current_thread
+            self.activation_attempts = []
             while user.GetForegroundWindow() != self.hwnd and time.monotonic() < deadline:
                 foreground = user.GetForegroundWindow()
                 foreground_thread = user.GetWindowThreadProcessId(foreground, None) if foreground else 0
@@ -262,8 +360,12 @@ class WindowsFixture:
                     user.ShowWindow(self.hwnd, 9)
                     user.BringWindowToTop(self.hwnd)
                     user.SetActiveWindow(self.hwnd)
-                    user.SetForegroundWindow(self.hwnd)
+                    C.set_last_error(0)
+                    activated = bool(user.SetForegroundWindow(self.hwnd))
+                    activation_error = C.get_last_error()
                     user.SetFocus(self.hwnd)
+                    self.activation_attempts.append({'foreground_thread_id': foreground_thread,
+                        'attached': attached, 'activated': activated, 'error': activation_error})
                 finally:
                     if attached:
                         user.AttachThreadInput(current_thread, foreground_thread, False)
@@ -286,7 +388,8 @@ class WindowsFixture:
         if self.error:
             raise self.error
         if self.user.GetForegroundWindow() != self.hwnd:
-            raise AssertionError('Fixture lost foreground; refusing to send desktop input elsewhere')
+            raise AssertionError('Fixture lost foreground; refusing to send desktop input elsewhere. '
+                                 + json.dumps(windows_desktop_diagnostics(self), sort_keys=True))
 
     def __exit__(self, *_):
         self.user.PostMessageW(self.hwnd, 0x10, 0, 0)
