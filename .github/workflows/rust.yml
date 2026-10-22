@@ -64,6 +64,12 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo build --release --locked --target '${{ matrix.target }}'
       - run: python tests/stdio.py
+      - run: python tests/computer_native.py
+      - name: Verify native desktop input in isolated Windows fixture
+        if: runner.os == 'Windows'
+        env:
+          PIKO_NATIVE_DESKTOP_TEST: '1'
+        run: python tests/computer_native.py
       - run: python tests/reliability.py
       - run: python tests/tools.py
       - run: pnpm test:package

@@ -5,7 +5,10 @@ reasoning_effort = "low"
 max_model_requests = 10
 max_subagents = 10
 computer_use = true
-computer_xdotool = "xdotool"
-computer_import = "import"
-# Requires Linux X11 plus xdotool/ImageMagick and DISPLAY/XAUTHORITY.
+# macOS: grant Screen Recording and Accessibility to the launching app/terminal.
+# Windows: use an unlocked interactive desktop; secure/elevated targets are blocked.
+# Linux: requires X11, xdotool/ImageMagick, DISPLAY/XAUTHORITY.
+# Optional Linux executable overrides (unused on macOS/Windows):
+# computer_xdotool = "xdotool"
+# computer_import = "import"
 # Every desktop action, including screenshots, still requires ACP approval.

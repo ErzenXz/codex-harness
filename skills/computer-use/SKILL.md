@@ -6,13 +6,16 @@ description: Safely inspect and operate an explicitly enabled desktop through co
 # Computer use
 
 Use file and shell tools for code, builds and tests. Use the desktop only for tasks
-that need a graphical interface. The native backend is opt-in Linux X11; use a
-trusted MCP computer/browser server on other platforms. Never install or enable
-a server yourself just to bypass a denied action.
+that need a graphical interface. Native desktop access is opt-in on macOS,
+Windows and Linux X11. Missing OS permissions require the user to grant them to
+the launching app; never change permissions, install or enable another server
+to bypass a denied action.
 
 1. Request `computer_use` with `{"action":"screenshot"}` before interacting.
 2. Inspect the returned image. Coordinates are pixels in that image (at most
-   1280×960), **not** the native display. Do not guess locations from stale images.
+   1280×960, possibly smaller to fit the byte limit), **not** the native display.
+   macOS/Windows address the primary display only. Do not guess locations from
+   stale images; capture again after a display configuration change.
 3. Take one deliberate action, then inspect a new screenshot to verify it. A
    successful command exit only means the input was dispatched, not that the UI
    did the intended thing. Reinspect after navigation, scrolling or resizing.
@@ -23,9 +26,17 @@ Actions:
 - `move`, `click`, `double_click`: supply `x`, `y`; optional `button` is `left`,
   `middle`, or `right` (defaults to `left`).
 - `type`: supply `text` (maximum 4096 bytes). Literal text is not a shell command.
-- `key`: supply an X11 key/chord such as `Return`, `Escape`, `Tab`, `ctrl+l`.
+- `key`: supply a named key/chord such as `Return`, `Escape`, `Tab`, `Ctrl+l`,
+  `Shift+Tab` or `Meta+l`. Meta is Command on macOS and Windows on Windows;
+  Ctrl remains Control. Linux additionally accepts X11 key names.
 - `scroll`: supply `direction` (`up`, `down`, `left`, `right`) and optional
   `amount` (1–20 wheel ticks, default 3).
+
+Typing sends literal Unicode events on macOS/Windows and does not replace the
+clipboard. Windows requires an unlocked interactive session and cannot control
+secure/UAC or higher-integrity applications. macOS requires Screen Recording and
+Accessibility grants to the launching app or terminal. Explain missing access
+and let the user resolve it; never suggest bypassing OS restrictions.
 
 Every native action, **including viewing screenshots**, requires ACP approval.
 Denial is final: never switch to shell, MCP, another agent or another tool to

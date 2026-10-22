@@ -108,7 +108,7 @@ fn computer_viewport_preserves_aspect_and_never_upscales() {
 }
 
 #[tokio::test]
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 async fn computer_driver_scales_coordinates_and_rejects_unsafe_arguments() {
     use piko::computer::Desktop;
     use std::os::unix::fs::PermissionsExt;

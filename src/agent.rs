@@ -87,7 +87,7 @@ pub async fn instructions(ctx: &AgentContext) -> Result<String> {
         ctx.depth < ctx.config.max_subagent_depth,
         &project,
     );
-    if ctx.config.computer_use && !ctx.read_only && cfg!(target_os = "linux") {
+    if ctx.config.computer_use && !ctx.read_only && crate::computer::supported() {
         instructions.push('\n');
         instructions.push_str(crate::computer::SKILL);
     }
@@ -147,7 +147,7 @@ pub async fn prepare(ctx: &AgentContext) -> Result<Toolset> {
             if !ctx.read_only && ctx.config.browser_cdp_url.is_some() {
                 definitions.push(crate::browser::definition());
             }
-            if ctx.config.computer_use && !ctx.read_only && cfg!(target_os = "linux") {
+            if ctx.config.computer_use && !ctx.read_only && crate::computer::supported() {
                 definitions.push(crate::computer::definition());
             }
             let encoded = serde_json::value::to_raw_value(&definitions)

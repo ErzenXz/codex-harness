@@ -179,9 +179,9 @@ may steer it; read-only agents cannot steer workers. Cancelled, evicted or full
 contexts require spawning a new agent. Child contexts/mailboxes are in memory;
 root session recovery records tool outcomes, not resumable child-agent processes.
 
-Native full-desktop control remains Linux X11 with `computer_use = true` and
-installed xdotool/ImageMagick. macOS and Windows desktop control use an explicitly
-configured MCP computer server. Cross-platform browser control above is built in.
+Opt-in full-desktop control uses native macOS/Windows APIs or installed Linux X11
+tools. See [desktop setup](#opt-in-computer-use). Browser automation above uses a
+dedicated browser profile and does not require desktop control.
 
 ## Authentication and providers
 
@@ -405,11 +405,29 @@ to an explicitly selected launcher configuration. The bundled
 code/worker instructions when enabled. Normal runs load no computer processes,
 capture no screenshots and add no computer schema/instructions to model requests.
 
-The native `computer_use` tool requires **Linux X11**, `xdotool`, ImageMagick's
-`import`, and access through `DISPLAY`/`XAUTHORITY`. Executable paths can be set via
-`computer_xdotool` and `computer_import` in the trusted config. On other platforms,
-use a trusted MCP computer/browser server; native Wayland/macOS/Windows drivers
-are not provided. A vision-capable model/provider is required to interpret images.
+A vision-capable model/provider is required to interpret images. Platform setup:
+
+- **macOS:** native ScreenCaptureKit/CoreGraphics capture and event APIs. Grant
+  **Screen Recording** and **Accessibility** to the app or terminal launching Piko
+  in System Settings → Privacy & Security, then restart that app. Screen Recording
+  may be named Screen & System Audio Recording. Piko checks permissions and reports
+  missing access without opening permission prompts or changing system settings.
+- **Windows:** native User32 input, GDI capture and the system JPEG encoder. Run in
+  the signed-in, unlocked interactive desktop session. Secure/UAC screens and
+  applications at a higher integrity level cannot be controlled; Piko does not
+  bypass these Windows restrictions. No PowerShell or clipboard is used.
+- **Linux:** X11 with `xdotool`, ImageMagick's `import`, and access through
+  `DISPLAY`/`XAUTHORITY`. Set `computer_xdotool`/`computer_import` in trusted config
+  for custom executable paths. Native Wayland is not supported.
+
+macOS and Windows capture their primary display. Pointer coordinates always refer
+to the most recent returned JPEG, including any adaptive resizing; secondary
+monitors are not addressed. Take a fresh screenshot after a display change.
+Typing sends literal Unicode keyboard events on macOS/Windows without replacing
+clipboard contents. Use `key` for shortcuts: `Ctrl+l`, `Shift+Tab`, `Return`,
+`Escape`, `Left` or `PageUp`. `Alt`/`Option` and `Meta`/`Super`/`Command` are accepted;
+`Meta` maps to Command on macOS and the Windows key on Windows. Linux also accepts
+X11 key names.
 
 | Action | Arguments |
 | --- | --- |
@@ -421,14 +439,16 @@ are not provided. A vision-capable model/provider is required to interpret image
 
 All actions, **including screenshots**, require explicit ACP permission. Plan,
 explore and reviewer agents cannot use them. Native desktop actions are serialized
-process-wide and have bounded output and ten-second subprocess timeouts. Use one
-desktop-driving session at a time, or separate displays/VMs: serialized actions
+process-wide and have bounded output and deadlines. Cancellation stops subsequent
+typing chunks; dispatched input cannot be undone. Use one desktop-driving session
+at a time, or separate displays/VMs: serialized actions
 do not isolate focus across whole multi-step flows. Input dispatch is not proof
 of UI success; inspect a fresh screenshot after each action.
 
 Screenshots are JPEG, at most 1280×960 and 96 KiB; pointer coordinates refer to
-that resized image and are scaled back to the native display. Over-budget images
-fail explicitly. MCP tool results support bounded text, structured content,
+that image and are scaled back to the native display. macOS/Windows reduce image
+size further when needed to fit the byte limit. Linux images that exceed the
+limit fail explicitly. MCP tool results support bounded text, structured content,
 embedded text resources and one validated PNG/JPEG image (96 KiB, at most 4096 per
 dimension and 8 million pixels). Resource links are described, never fetched
 automatically. Audio, blobs and unsupported/oversized images are omitted with an
@@ -519,10 +539,13 @@ cargo test --locked --all-targets
 cargo build --locked && python3 tests/stdio.py && python3 tests/reliability.py
 ```
 
-Tests use temporary workspaces, mock desktop executables and loopback model/MCP
-servers; no desktop software, paid model calls or
-credentials are needed. CI does not validate live subscription eligibility,
-model intelligence, real provider caching, or comparisons against other agents.
+Ordinary tests use temporary workspaces, mock desktop executables and loopback
+model/MCP servers; no paid model calls or credentials are needed. Native Windows
+desktop tests opt in with `PIKO_NATIVE_DESKTOP_TEST=1` and use their own temporary
+window. macOS permission-denial checks do not capture the desktop or send input;
+positive macOS checks require the launcher's system permissions. CI does not
+validate live subscription eligibility, model intelligence, real provider caching,
+or comparisons against other agents.
 
 Reproduce a release-mode local-overhead/concurrency/search benchmark:
 

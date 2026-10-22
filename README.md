@@ -74,8 +74,9 @@ process until you use the native path.
 
 Web search needs your Brave API key; browser automation uses an explicitly
 configured installed Chrome/Edge with a dedicated profile. No browser is bundled.
-Approved tools can access your host. Full desktop control requires Linux X11
-or an external MCP computer server on macOS/Windows. See
+Approved tools can access your host. Opt-in desktop control uses native macOS/Windows
+APIs or Linux X11; no desktop automation package is bundled.
+[Desktop setup →](https://github.com/ErzenXz/piko/blob/main/docs/reference.md#opt-in-computer-use) · See
 [security and limits](https://github.com/ErzenXz/piko/blob/main/docs/reference.md#safety-boundaries).
 
 ---

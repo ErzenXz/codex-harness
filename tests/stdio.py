@@ -322,7 +322,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
                 await h.rpc("session/set_mode",{"sessionId":s,"modeId":mode})
                 result=await h.prompt(s)
                 self.assertEqual(result["result"]["stopReason"],"end_turn",result)
-                self.assertEqual(len(h.permissions), expected_permissions if sys.platform.startswith("linux") else 0)
+                self.assertEqual(len(h.permissions), expected_permissions if (sys.platform.startswith("linux") or sys.platform == "darwin" or os.name == "nt") else 0)
                 self.assertNotIn("backend unavailable",json.dumps(h.requests))
 
     async def test_mcp_http_json_sse_pagination_and_negotiated_headers(self):

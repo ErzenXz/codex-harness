@@ -1,3 +1,11 @@
+# 0.7.0
+
+- Add native macOS and Windows computer use through system capture, JPEG and input APIs, with no new dependencies, helpers, browser downloads or clipboard changes.
+- Bound captures to 1280 × 960 and 96 KiB with adaptive compression. Map pointer coordinates from the actual returned image, preserving Retina and Windows DPI scaling.
+- Keep desktop access opt-in, approved through ACP and disabled in read-only mode. Require a same-agent screenshot before native pointer input; reject stale display geometry.
+- Run blocking OS calls outside the event loop and serialize desktop access through cancellation and timeout. Explain missing OS permissions and protected-desktop limits.
+- Exercise actual Unicode, key chords, pointer actions and scrolling in isolated native desktop fixtures, alongside all six platform release checks.
+
 # 0.6.2
 
 - Add approved web fetch with public-network DNS pinning and bounded text, plus
