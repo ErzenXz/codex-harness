@@ -737,7 +737,7 @@ mod tests {
         // This deliberately has no GetDC, screenshot, window or input calls:
         // service/headless runners can exercise the actual Windows codec ABI.
         let mut pixels = [0u8; 16 * 16 * 4];
-        for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             pixel.copy_from_slice(&[(index % 16 * 16) as u8, (index / 16 * 16) as u8, 80, 0]);
         }
         for _ in 0..3 {

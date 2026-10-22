@@ -1,6 +1,11 @@
 name: Desktop diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      exercise_native:
+        description: Build and exercise the native desktop driver in an isolated window
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -10,7 +15,7 @@ jobs:
       matrix:
         os: [windows-2025, windows-11-arm]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -20,3 +25,19 @@ jobs:
         env:
           PYTHONPATH: tests
         run: python -B -c "from computer_native import windows_probe; windows_probe()"
+      - if: inputs.exercise_native
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: clippy
+      - if: inputs.exercise_native
+        run: cargo test --locked --all-targets
+      - if: inputs.exercise_native
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - if: inputs.exercise_native
+        run: cargo build --release --locked
+      - name: Exercise real native capture and input
+        if: inputs.exercise_native
+        env:
+          PIKO_BIN: target/release/piko.exe
+          PIKO_NATIVE_DESKTOP_TEST: '1'
+        run: python -B tests/computer_native.py -v
