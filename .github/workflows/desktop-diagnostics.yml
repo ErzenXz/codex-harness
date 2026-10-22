@@ -2,6 +2,10 @@ name: Desktop diagnostics
 on:
   workflow_dispatch:
     inputs:
+      prepare_desktop:
+        description: Cancel known transient overlays in the disposable hosted desktop
+        type: boolean
+        default: false
       exercise_native:
         description: Build and exercise the native desktop driver in an isolated window
         type: boolean
@@ -22,7 +26,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Prepare disposable hosted desktop
-        if: inputs.exercise_native
+        if: inputs.exercise_native || inputs.prepare_desktop
         run: ./tests/prepare-windows-desktop.ps1
       - name: Inspect desktop access and activate only an isolated test window
         env:

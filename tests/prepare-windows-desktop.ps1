@@ -8,11 +8,17 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or
     exit 0
 }
 $session = (Get-Process -Id $PID).SessionId
-$expected = [IO.Path]::Combine([Environment]::SystemDirectory, 'WWAHost.exe')
-foreach ($process in @(Get-Process -Name WWAHost -ErrorAction SilentlyContinue)) {
+$windows = [IO.Directory]::GetParent([Environment]::SystemDirectory).FullName
+$allowed = @{
+    WWAHost = [IO.Path]::Combine([Environment]::SystemDirectory, 'WWAHost.exe')
+    SearchHost = [IO.Path]::Combine($windows, 'SystemApps', 'MicrosoftWindows.Client.CBS_cw5n1h2txyewy', 'SearchHost.exe')
+}
+# Ending SearchHost is Microsoft's documented restart mechanism for its flyout:
+# https://learn.microsoft.com/troubleshoot/windows-client/shell-experience/fix-problems-in-windows-search
+foreach ($process in @(Get-Process -Name WWAHost,SearchHost -ErrorAction SilentlyContinue)) {
     try {
         if ($process.SessionId -ne $session -or
-            -not [string]::Equals($process.Path, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            -not [string]::Equals($process.Path, $allowed[$process.ProcessName], [StringComparison]::OrdinalIgnoreCase)) {
             continue
         }
         if ($process.HasExited) { continue }
@@ -22,7 +28,7 @@ foreach ($process in @(Get-Process -Name WWAHost -ErrorAction SilentlyContinue))
             if (-not $process.HasExited) { $process.Kill() }
             if (-not $process.WaitForExit(3000)) { throw 'Windows web-host overlay did not close' }
         }
-        Write-Host 'Closed the Windows web-host overlay in disposable ARM64 CI.'
+        Write-Host ('Closed ' + $process.ProcessName + ' overlay in disposable ARM64 CI.')
     } finally {
         $process.Dispose()
     }
