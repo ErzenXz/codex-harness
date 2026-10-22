@@ -8,7 +8,9 @@
 - Add workspace PNG/JPEG viewing and exact-context apply_patch with full preflight,
   protected paths, stale-content checks and atomic per-file writes.
 - Add genuine Unix PTY / Windows ConPTY sessions with approved input, resize,
-  rolling output, deadlines, cancellation and process-tree cleanup.
+  rolling output, deadlines, cancellation and process-tree cleanup. Windows uses
+  UTF-8 cmd.exe batch scripts with automatic cleanup, preserving quoted paths
+  and environment expansion without starting PowerShell for every terminal.
 - Add bounded parent-to-child agent messages and follow-up turns preserving child
   context; close the final-reply message race and keep read-only limits intact.
 - Share immutable built-in schemas across sessions and encode them once; reuse

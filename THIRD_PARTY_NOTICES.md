@@ -50,6 +50,7 @@ Generated offline by `python3 scripts/licenses.py`. Includes locked runtime/buil
 - displaydoc 0.2.7 (MIT OR Apache-2.0): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
 - downcast-rs 1.2.1 (MIT/Apache-2.0): [text 7e1b38c60796dd99](#license-7e1b38c60796dd99), [text 32979a7dea178015](#license-32979a7dea178015)
 - equivalent 1.0.3 (Apache-2.0 OR MIT): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 4428cd87371acbd4](#license-4428cd87371acbd4)
+- fastrand 2.5.0 (Apache-2.0 OR MIT): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
 - filedescriptor 0.8.3 (MIT): [text 0f5e2ba844a4557a](#license-0f5e2ba844a4557a)
 - find-msvc-tools 0.1.15 (MIT OR Apache-2.0): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 84e1bbfebd74e419](#license-84e1bbfebd74e419)
 - form_urlencoded 1.2.2 (MIT OR Apache-2.0): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 33ed9a8ecf556f16](#license-33ed9a8ecf556f16)
@@ -142,6 +143,7 @@ Generated offline by `python3 scripts/licenses.py`. Includes locked runtime/buil
 - syn 3.0.9 (MIT OR Apache-2.0): [text 85ad950cce8752f7](#license-85ad950cce8752f7), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
 - sync_wrapper 1.0.2 (Apache-2.0): [text 4bf96504d6e83ce5](#license-4bf96504d6e83ce5)
 - synstructure 0.14.0 (MIT): [text 3a036676ec8c0dba](#license-3a036676ec8c0dba)
+- tempfile 3.27.0 (MIT OR Apache-2.0): [text 954f335b8baf5e1a](#license-954f335b8baf5e1a), [text 7bdd5c5e8ad0c973](#license-7bdd5c5e8ad0c973)
 - thiserror 1.0.69 (MIT OR Apache-2.0): [text 85ad950cce8752f7](#license-85ad950cce8752f7), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
 - thiserror 2.0.21 (MIT OR Apache-2.0): [text 85ad950cce8752f7](#license-85ad950cce8752f7), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
 - thiserror-impl 1.0.69 (MIT OR Apache-2.0): [text 85ad950cce8752f7](#license-85ad950cce8752f7), [text 30fefc3a7d6a0041](#license-30fefc3a7d6a0041)
@@ -6063,6 +6065,38 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+<a id="license-7bdd5c5e8ad0c973"></a>
+
+## License 7bdd5c5e8ad0c973
+
+```text
+Copyright (c) 2015 Steven Allen
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 ```
 
 <a id="license-bccaa8b6c09f94e8"></a>

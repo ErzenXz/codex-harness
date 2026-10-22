@@ -144,6 +144,10 @@ class Harness:
         config = self.root / "config.toml"
         config.write_text(f'auth = "none"\nbase_url = "http://127.0.0.1:{port}/v1"\nstate_dir = {json.dumps(str(self.root / "state"))}\n{self.extra}')
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_BASE_URL", "OPENAI_MODEL", "PIKO_STATE_DIR", "CODEX_HARNESS_STATE_DIR")}
+        if os.name == 'nt':
+            temporary = self.root / 'temporary files with spaces'
+            temporary.mkdir()
+            env.update(TEMP=str(temporary), TMP=str(temporary))
         self.process = await asyncio.create_subprocess_exec(str(BINARY), "--config", str(config), env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=2**21)
         self.reader = asyncio.create_task(self.read())

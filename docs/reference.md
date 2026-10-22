@@ -161,7 +161,10 @@ those paths before retrying. Whitespace fuzz and ambiguous contexts are rejected
 ### Interactive terminals and agent messages
 
 `terminal_start` runs an approved command in a native Unix PTY (`/bin/sh`) or
-Windows ConPTY (PowerShell). It returns a task ID; `task_status` reads bounded
+Windows ConPTY (`cmd.exe`, UTF-8). Windows commands use batch syntax, preserving
+quoted paths and environment expansion. PowerShell is available as an explicitly
+invoked installed program; Piko does not load it for every terminal. The tool
+returns a task ID; `task_status` reads bounded
 rolling output and wakes when terminal output changes. `terminal_write` requires
 separate approval because input can execute commands; include a newline to submit.
 `terminal_resize` adjusts rows/columns; `terminal_close` or `task_cancel` terminates

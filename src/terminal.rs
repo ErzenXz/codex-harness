@@ -6,8 +6,6 @@ use crate::{
     tools::string,
 };
 use anyhow::{Context, Result, bail, ensure};
-#[cfg(windows)]
-use base64::{Engine, engine::general_purpose::STANDARD};
 use portable_pty::{CommandBuilder, MasterPty, PtySize};
 use serde_json::{Value, json};
 use std::{
@@ -55,7 +53,7 @@ pub fn definitions() -> Vec<Value> {
     vec![
         function(
             "terminal_start",
-            "Start a command in a genuine interactive terminal after approval (Unix sh; Windows PowerShell). Returns a task_id; use task_status for bounded output. Execution is not sandboxed. Lifetime is limited by timeout_secs.",
+            "Start a command in a genuine interactive terminal after approval (Unix sh; Windows cmd.exe batch syntax, UTF-8). Returns a task_id; use task_status for bounded output. Execution is not sandboxed. Lifetime is limited by timeout_secs.",
             json!({"command":{"type":"string"},"timeout_secs":{"type":"integer","minimum":1},"rows":{"type":"integer","minimum":1,"maximum":500},"cols":{"type":"integer","minimum":1,"maximum":500}}),
         ),
         function(
@@ -225,6 +223,8 @@ struct Process {
     master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     group: ProcessGroup,
+    #[cfg(windows)]
+    _script: tempfile::TempPath,
 }
 impl Process {
     fn kill(&mut self) {
@@ -248,6 +248,22 @@ impl Drop for Process {
         self.kill();
     }
 }
+// Keep the closed script's deletion guard with Process, after child/PTY handles.
+// No shell profile or inherited PowerShell module initialization is necessary.
+#[cfg(any(windows, test))]
+fn windows_script(command: &str) -> Result<tempfile::TempPath> {
+    ensure!(!command.contains('\0'), "Terminal command contains NUL");
+    let mut file = tempfile::Builder::new()
+        .prefix("piko-terminal-")
+        .suffix(".cmd")
+        .tempfile()?;
+    file.write_all(b"@echo off\r\n@chcp 65001 >nul\r\n")?;
+    file.write_all(command.as_bytes())?;
+    file.write_all(b"\r\n")?;
+    file.flush()?;
+    Ok(file.into_temp_path())
+}
+
 type ReaderHandle = std::sync::mpsc::SyncSender<Box<dyn Read + Send>>;
 type WriterHandle = std::sync::mpsc::SyncSender<Box<dyn Write + Send>>;
 
@@ -282,21 +298,18 @@ fn spawn(
         .send(writer)
         .map_err(|_| anyhow::anyhow!("Terminal writer stopped"))?;
     #[cfg(windows)]
+    let script = windows_script(command)?;
+    #[cfg(windows)]
     let mut cmd = {
-        // Encoding avoids cmd.exe's incompatible quoting rules for embedded quotes.
-        let encoded: Vec<u8> = command.encode_utf16().flat_map(u16::to_le_bytes).collect();
         let system_root = std::env::var_os("SYSTEMROOT")
             .or_else(|| std::env::var_os("WINDIR"))
             .context("Missing Windows system directory")?;
-        let shell = std::path::PathBuf::from(system_root)
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        let mut cmd = CommandBuilder::new(shell);
-        cmd.args([
-            "-NoLogo",
-            "-NoProfile",
-            "-EncodedCommand",
-            &STANDARD.encode(encoded),
-        ]);
+        let mut cmd =
+            CommandBuilder::new(std::path::PathBuf::from(system_root).join("System32/cmd.exe"));
+        // CommandBuilder applies C argv escaping, which cannot represent arbitrary
+        // cmd.exe scripts. Expand only this quoted, private script path; user
+        // quotes, percent variables and multiline commands are parsed inside it.
+        cmd.args(["/D", "/S", "/C", "%PIKO_TERMINAL_SCRIPT%"]);
         cmd
     };
     #[cfg(not(windows))]
@@ -313,6 +326,13 @@ fn spawn(
         }
     }
     cmd.env("TERM", "xterm-256color");
+    #[cfg(windows)]
+    {
+        let mut path = std::ffi::OsString::from("\"");
+        path.push(script.as_os_str());
+        path.push("\"");
+        cmd.env("PIKO_TERMINAL_SCRIPT", path);
+    }
     let mut child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
     let group = match ProcessGroup::for_pty(child.as_mut()) {
@@ -327,6 +347,8 @@ fn spawn(
         master: Some(pair.master),
         child,
         group,
+        #[cfg(windows)]
+        _script: script,
     })
 }
 
@@ -971,6 +993,22 @@ mod tests {
     }
 
     #[test]
+    fn windows_script_preserves_commands_and_cleans_up_its_file() {
+        let command = "set value=hello\r\necho \"%TEMP%\\quoted path\"\r\necho héllo %value%";
+        let script = windows_script(command).unwrap();
+        let path = script.to_path_buf();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            contents,
+            format!("@echo off\r\n@chcp 65001 >nul\r\n{command}\r\n")
+        );
+        assert_eq!(path.extension().unwrap(), "cmd");
+        drop(script);
+        assert!(!path.exists());
+        assert!(windows_script("echo bad\0command").is_err());
+    }
+
+    #[test]
     fn terminal_dimensions_are_strictly_bounded() {
         for value in [
             json!({"rows":0,"cols":80}),
@@ -1010,7 +1048,7 @@ mod tests {
         #[cfg(unix)]
         let command = "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size";
         #[cfg(windows)]
-        let command = "if ([Console]::IsInputRedirected) {exit 9}; [Console]::Write('ready>'); $line = [Console]::ReadLine(); [Console]::WriteLine('reply:' + $line)";
+        let command = "python -c \"import sys; sys.exit(0 if sys.stdin.isatty() and sys.stdout.isatty() else 9)\"\r\nif errorlevel 1 exit /b 9\r\nset /p piko_line=ready^>\r\necho reply:%piko_line%";
         let began = Instant::now();
         let snapshot = start(
             &jobs,
@@ -1166,7 +1204,7 @@ mod tests {
         #[cfg(unix)]
         let command = "sleep 30";
         #[cfg(windows)]
-        let command = "Start-Sleep -Seconds 30";
+        let command = "ping -n 31 127.0.0.1 >nul";
         let started = start(
             &jobs,
             directory.path(),

@@ -151,14 +151,15 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tasks[0]['status'], 'cancelled')
 
     async def test_interactive_terminal_approvals_resize_input_and_output(self):
-        command = "if ([Console]::IsInputRedirected) {exit 9}; [Console]::Write('ready>'); $line = [Console]::ReadLine(); [Console]::WriteLine('reply:' + $line)" if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
+        command = '@echo off\nset /p piko_line=ready^>\necho reply:%piko_line%' if os.name == 'nt' else "test -t 0 && test -t 1 || exit 9; printf 'ready>'; IFS= read -r line; printf 'reply:%s\\n' \"$line\"; stty size"
         await self._terminal_roundtrip(command)
 
-    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell host API')
-    async def test_windows_powershell_read_host_roundtrip(self):
-        await self._terminal_roundtrip("if ([Console]::IsInputRedirected) {exit 9}; Write-Host 'ready>'; $line = Read-Host; Write-Host ('reply:' + $line)")
+    @unittest.skipUnless(os.name == 'nt', 'Windows command processor quoting')
+    async def test_windows_quoted_paths_and_environment_expansion(self):
+        command = '@echo off\nset "PIKO_TEST=env value"\necho %PIKO_TEST%>"quoted path.txt"\ntype "quoted path.txt"\n"%SystemRoot%\\System32\\cmd.exe" /d /c echo child-quoted\nset /p piko_line=ready^>\necho reply:%piko_line%'
+        await self._terminal_roundtrip(command, ('env value', 'child-quoted'))
 
-    async def _terminal_roundtrip(self, command):
+    async def _terminal_roundtrip(self, command, required_output=()):
         sent_input = False
         ready_deadline = time.monotonic() + 12
         async def model(body):
@@ -183,6 +184,8 @@ class ToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['status'], 'completed')
             self.assertEqual(result['exit_code'], 0)
             self.assertIn('reply:test-input', result['output'])
+            for expected in required_output:
+                self.assertIn(expected, result['output'])
             if os.name != 'nt':
                 self.assertIn('41 101', result['output'])
             return final()
