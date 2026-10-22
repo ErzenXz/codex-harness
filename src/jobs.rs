@@ -24,6 +24,7 @@ pub struct Job {
     pub cancel: CancellationToken,
     pub state: Mutex<JobState>,
     pub done: Notify,
+    pub(crate) terminal: Mutex<Option<Arc<crate::terminal::Terminal>>>,
 }
 
 pub struct JobState {
@@ -76,6 +77,7 @@ impl Jobs {
                 truncated: false,
             }),
             done: Notify::new(),
+            terminal: Mutex::new(None),
         });
         entries.insert(job.id.clone(), job.clone());
         Ok(job)
@@ -257,6 +259,24 @@ impl Job {
         json!({"task_id":self.id,"kind":self.kind,"parent_id":self.parent,"status":state.status,"output":state.output,"exit_code":state.exit_code,"truncated":state.truncated})
     }
 
+    pub(crate) async fn append_output(&self, output: &str, limit: usize) {
+        if output.is_empty() {
+            return;
+        }
+        let mut state = self.state.lock().await;
+        state.output.push_str(output);
+        if state.output.len() > limit {
+            let mut start = state.output.len() - limit;
+            while !state.output.is_char_boundary(start) {
+                start += 1;
+            }
+            state.output.drain(..start);
+            state.truncated = true;
+        }
+        drop(state);
+        self.done.notify_waiters();
+    }
+
     pub async fn finish(&self, status: &str, output: String, code: Option<i32>, limit: usize) {
         let mut state = self.state.lock().await;
         state.status = status.into();
@@ -290,27 +310,29 @@ async fn drain(mut reader: impl AsyncRead + Unpin, job: Arc<Job>, limit: usize) 
 }
 
 // Forward only execution essentials, never the host's API keys or auth tokens.
+pub(crate) const EXECUTION_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "XDG_RUNTIME_DIR",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LOCALAPPDATA",
+    "APPDATA",
+];
+
 pub(crate) fn inherit_process_environment(command: &mut Command) {
-    for key in [
-        "PATH",
-        "HOME",
-        "USER",
-        "LANG",
-        "LC_ALL",
-        "TMPDIR",
-        "XDG_RUNTIME_DIR",
-        "SYSTEMROOT",
-        "WINDIR",
-        "COMSPEC",
-        "PATHEXT",
-        "TEMP",
-        "TMP",
-        "USERPROFILE",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "LOCALAPPDATA",
-        "APPDATA",
-    ] {
+    for key in EXECUTION_ENV {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
@@ -378,6 +400,55 @@ impl ProcessGroup {
         {
             let _ = child;
             Ok(Self {})
+        }
+    }
+
+    pub(crate) fn for_pty(child: &mut dyn portable_pty::Child) -> Result<Self> {
+        #[cfg(unix)]
+        {
+            Ok(Self {
+                pid: child.process_id(),
+            })
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+            use windows_sys::Win32::System::JobObjects::{
+                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                SetInformationJobObject,
+            };
+            let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            ensure!(!handle.is_null(), "Cannot create terminal process job");
+            let job = unsafe { OwnedHandle::from_raw_handle(handle) };
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            ensure!(
+                unsafe {
+                    SetInformationJobObject(
+                        job.as_raw_handle(),
+                        JobObjectExtendedLimitInformation,
+                        (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                        std::mem::size_of_val(&limits) as u32,
+                    )
+                } != 0,
+                "Cannot configure terminal process job"
+            );
+            let process = child
+                .as_raw_handle()
+                .context("Missing terminal process handle")?;
+            if unsafe { AssignProcessToJobObject(job.as_raw_handle(), process) } == 0 {
+                ensure!(
+                    child.try_wait()?.is_some(),
+                    "Cannot contain terminal process tree"
+                );
+            }
+            Ok(Self { job })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = child;
+            bail!("Interactive terminals require macOS, Linux, or Windows")
         }
     }
 

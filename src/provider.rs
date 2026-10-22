@@ -15,7 +15,7 @@ struct ResponsesRequest<'a> {
     model: &'a str,
     instructions: &'a str,
     input: &'a [Value],
-    tools: &'a [Value],
+    tools: &'a serde_json::value::RawValue,
     stream: bool,
     store: bool,
     parallel_tool_calls: bool,
@@ -110,6 +110,7 @@ impl Provider {
         instructions: &str,
         input: &[Value],
         tools: &[Value],
+        encoded_tools: Option<&serde_json::value::RawValue>,
         peer: &Peer,
         session_id: &str,
         agent_id: Option<&str>,
@@ -123,7 +124,7 @@ impl Provider {
             biased;
             _ = cancel.cancelled() => bail!("Cancelled"),
             result = tokio::time::timeout_at(deadline, self.respond_inner(
-                model, reasoning_effort, instructions, input, tools, peer,
+                model, reasoning_effort, instructions, input, tools, encoded_tools, peer,
                 session_id, agent_id, cancel,
             )) => result.context("Model request deadline exceeded; retry when ready")?,
         }
@@ -137,6 +138,7 @@ impl Provider {
         instructions: &str,
         input: &[Value],
         tools: &[Value],
+        encoded_tools: Option<&serde_json::value::RawValue>,
         peer: &Peer,
         session_id: &str,
         agent_id: Option<&str>,
@@ -155,6 +157,14 @@ impl Provider {
         let retention = (cached && credentials.account_id.is_none())
             .then_some(self.config.prompt_cache_retention.as_deref())
             .flatten();
+        let fallback_tools;
+        let encoded_tools = match encoded_tools {
+            Some(encoded) => encoded,
+            None => {
+                fallback_tools = serde_json::value::to_raw_value(tools)?;
+                &fallback_tools
+            }
+        };
         let body = if chat {
             let mut body = chat_request(
                 model,
@@ -178,7 +188,7 @@ impl Provider {
                 model,
                 instructions,
                 input,
-                tools,
+                tools: encoded_tools,
                 stream: true,
                 store: false,
                 parallel_tool_calls: true,
@@ -706,11 +716,12 @@ mod tests {
     fn borrowed_responses_request_preserves_optional_fields() {
         let input = [json!({"role":"user","content":"hello"})];
         let tools = [json!({"type":"function","name":"read_file"})];
+        let encoded = serde_json::value::to_raw_value(&tools).unwrap();
         let mut request = ResponsesRequest {
             model: "model",
             instructions: "instructions",
             input: &input,
-            tools: &tools,
+            tools: &encoded,
             stream: true,
             store: false,
             parallel_tool_calls: true,
@@ -722,7 +733,7 @@ mod tests {
             prompt_cache_retention: Some("24h"),
         };
         assert!(std::ptr::eq(request.input.as_ptr(), input.as_ptr()));
-        assert!(std::ptr::eq(request.tools.as_ptr(), tools.as_ptr()));
+        assert!(std::ptr::eq(request.tools, encoded.as_ref()));
         let value = serde_json::to_value(&request).unwrap();
         assert_eq!(value["input"], json!(input));
         assert_eq!(value["tools"], json!(tools));
@@ -825,6 +836,7 @@ mod tests {
                 "instructions",
                 &[],
                 &[],
+                None,
                 &peer,
                 "session",
                 None,

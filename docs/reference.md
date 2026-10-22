@@ -48,7 +48,7 @@ No configuration is read from the project being edited.
 Source installation requires Rust 1.88+ and your OS build tools:
 
 ```sh
-cargo install --git https://github.com/ErzenXz/piko --tag v0.5.0 --locked
+cargo install --git https://github.com/ErzenXz/piko --tag v0.6.0 --locked
 ```
 
 ## ACP launch contract
@@ -65,6 +65,120 @@ version 1, then send `session/new` with an absolute `cwd` and `mcpServers: []`.
 All stdout is newline-delimited JSON-RPC, not Content-Length framing. Fatal
 startup/transport diagnostics go to stderr. Empty stdin/EOF shuts the agent down.
 The launcher owns daemonization; this executable does not fork away from stdio.
+
+## Web, browser, images and interactive tools
+
+File tools, `view_image`, `apply_patch`, interactive terminals and agent messaging
+are built in. Web fetching is enabled by default; `web_enabled = false` removes
+both web tools. All external requests, browser actions, file mutations and terminal
+commands/input require ACP client approval. Denial never retries through another
+route. Plan mode omits mutation, browser and terminal tools; approved public web
+research and workspace image reading remain available.
+
+### Web search
+
+Set `BRAVE_SEARCH_API_KEY` in your ACP launcher's environment (or secret settings).
+`web_search` appears only when its configured key is available; Piko login does
+not supply a search key. Obtain your own key and check its plan at
+[Brave Search API](https://api-dashboard.search.brave.com/). Search returns URLs,
+titles and snippets; `web_fetch` retrieves source text and never executes scripts.
+Fetched text is untrusted. Public-page fetch blocks local/private/special networks,
+pins validated DNS answers and rechecks redirects. Browser control supports local
+development apps separately.
+
+Optional trusted configuration:
+
+```toml
+web_enabled = true
+web_search_api_key_env = "BRAVE_SEARCH_API_KEY"
+# Override only for an explicitly trusted Brave-compatible HTTPS provider:
+# web_search_url = "https://api.search.brave.com/res/v1/web/search"
+```
+
+Search and fetch share the configured concurrency gate, have a 20-second deadline,
+a 1 MiB response cap and bounded serialized output. PDFs, binary downloads and
+JavaScript-heavy pages need a suitable browser or MCP tool. Snippets are search
+results, not proof that a source supports a claim; fetch and cite the source.
+
+### Browser automation
+
+Use an **installed Chrome or Edge with its own profile**. There is no browser
+download, daemon, profile scan or connection to your everyday browser by default.
+Start the dedicated browser yourself; keep its debug port on loopback. For example,
+on macOS with Chrome:
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.local/share/piko/browser"
+```
+
+On Linux use your installed `google-chrome` or `microsoft-edge` executable with
+the same flags. In Windows PowerShell, for a standard Chrome installation:
+
+```powershell
+& "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 `
+  "--user-data-dir=$env:LOCALAPPDATA\Piko\browser"
+```
+
+Then add this to the trusted config passed to `piko --config`:
+
+```toml
+browser_cdp_url = "http://127.0.0.1:9222"
+```
+
+`browser` now appears in Code mode. `navigate` creates a tab and returns `tab_id`;
+reuse that ID for `snapshot`, `click`, `type`, `evaluate`, `screenshot` and `close`.
+`tabs` lists pages in this explicitly configured profile. Snapshots include text,
+links and controls; selectors drive interactions. Type replaces a field's value;
+click is a DOM click, so applications requiring trusted pointer events may need a
+specialized MCP browser tool. Inspect snapshots and verify actions. Navigation may
+access local development servers. Browser JavaScript and pages can act outside
+the workspace, within the approved browser's permissions.
+
+Actions have a 30-second deadline and bounded HTTP/WebSocket/image output. Failed
+new-tab navigation closes only the tab it created; existing tabs remain yours.
+Screenshots cover the top-left viewport area, not a full-page capture. Close idle
+tabs and quit the dedicated browser yourself when done. Its memory is separate
+from Piko's native-process measurements. Chrome 136+ requires a non-default
+profile for remote debugging; see [Chrome's guidance](https://developer.chrome.com/blog/remote-debugging-port).
+
+### Local images and patches
+
+`view_image` reads workspace PNG/JPEG and sends it through provider and ACP image
+content. Limits are 96 KiB, 4096 pixels per side and 8 million pixels. Resize or
+compress larger files with an approved installed tool first. Piko adds no image
+decoder dependency or implicit subprocess.
+
+`apply_patch` accepts `*** Begin Patch` / `*** End Patch`, add/delete/update/move
+operations and exact context hunks. It validates every path and original before
+approval, then rechecks snapshots. Limits: 32 operations, 256 KiB/file and 1 MiB
+aggregate patch/file data. Each file write is atomic; a multi-file patch is **not
+transactional**. If I/O fails partway, the error lists applied paths. Inspect
+those paths before retrying. Whitespace fuzz and ambiguous contexts are rejected.
+
+### Interactive terminals and agent messages
+
+`terminal_start` runs an approved command in a native Unix PTY (`/bin/sh`) or
+Windows ConPTY (PowerShell). It returns a task ID; `task_status` reads bounded
+rolling output and wakes when terminal output changes. `terminal_write` requires
+separate approval because input can execute commands; include a newline to submit.
+`terminal_resize` adjusts rows/columns; `terminal_close` or `task_cancel` terminates
+its process tree. Lifetime is capped by `command_timeout_secs`, input by 16 KiB and
+terminal count by `max_jobs`. Each live terminal uses two small-stack I/O threads;
+none exist before a terminal starts. These tools are not a security sandbox.
+
+`message_agent` queues up to eight 8 KiB messages for a running child, delivered
+between model requests. It does not interrupt an in-flight model request or tool.
+Use `followup_agent` after completion to reuse its bounded context. Only its parent
+may steer it; read-only agents cannot steer workers. Cancelled, evicted or full
+contexts require spawning a new agent. Child contexts/mailboxes are in memory;
+root session recovery records tool outcomes, not resumable child-agent processes.
+
+Native full-desktop control remains Linux X11 with `computer_use = true` and
+installed xdotool/ImageMagick. macOS and Windows desktop control use an explicitly
+configured MCP computer server. Cross-platform browser control above is built in.
 
 ## Authentication and providers
 

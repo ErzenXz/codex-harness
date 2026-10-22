@@ -29,6 +29,10 @@ pub struct Config {
     pub computer_use: bool,
     pub computer_xdotool: String,
     pub computer_import: String,
+    pub web_enabled: bool,
+    pub web_search_api_key_env: String,
+    pub web_search_url: String,
+    pub browser_cdp_url: Option<String>,
 }
 
 impl Default for Config {
@@ -58,6 +62,10 @@ impl Default for Config {
             computer_use: false,
             computer_xdotool: "xdotool".into(),
             computer_import: "import".into(),
+            web_enabled: true,
+            web_search_api_key_env: "BRAVE_SEARCH_API_KEY".into(),
+            web_search_url: "https://api.search.brave.com/res/v1/web/search".into(),
+            browser_cdp_url: None,
         }
     }
 }
@@ -101,6 +109,30 @@ impl Config {
                 !program.is_empty() && program.len() <= 4096 && !program.contains('\0'),
                 "Invalid computer backend executable"
             );
+        }
+        ensure!(
+            !self.web_search_api_key_env.is_empty()
+                && self.web_search_api_key_env.len() <= 256
+                && self
+                    .web_search_api_key_env
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "Invalid search API key environment variable"
+        );
+        let search =
+            reqwest::Url::parse(&self.web_search_url).context("Invalid search endpoint")?;
+        let local = matches!(search.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+        ensure!(
+            search.host_str().is_some()
+                && search.username().is_empty()
+                && search.password().is_none()
+                && search.query().is_none()
+                && search.fragment().is_none()
+                && (search.scheme() == "https" || (local && search.scheme() == "http")),
+            "Search endpoint requires HTTPS without URL credentials, query or fragment (except loopback)"
+        );
+        if let Some(endpoint) = &self.browser_cdp_url {
+            crate::browser::validate_endpoint(endpoint)?;
         }
         ensure!(
             self.state_dir.is_absolute() && self.state_dir.parent().is_some(),

@@ -833,14 +833,14 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
     async def test_large_completed_history_does_not_discard_the_next_prompt(self):
         async def model(body):
             if body["input"][-1].get("content","").strip()=="second": return final()
-            text="y"*7000
+            text="y"*14000
             return final(text)
-        async with Harness(model,extra="context_bytes = 16384\n") as h:
+        async with Harness(model,extra="context_bytes = 32768\n") as h:
             await h.initialize()
             session=await h.session()
             self.assertNotIn("error",await h.prompt(session,"first"))
             # A large new prompt plus retained history must be budgeted together.
-            self.assertNotIn("error",await h.prompt(session,"x"*8000))
+            self.assertNotIn("error",await h.prompt(session,"x"*16000))
             self.assertNotIn("error",await h.prompt(session,"second"))
 
     async def test_denied_and_conflicting_edits_never_write(self):

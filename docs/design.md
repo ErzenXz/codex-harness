@@ -71,3 +71,32 @@ cancellation. CI runs the same checks on macOS/Linux/Windows, arm64/x64.
 
 [Measurements and reproduction](performance.md) distinguish synthetic local
 overhead from model inference, provider capacity and coding quality.
+
+
+## Tool expansion in 0.6
+
+Built-in schemas are immutable and shared across sessions by mode and delegation
+capability. Their encoded Responses representation is generated once and copied
+into outgoing requests without walking a JSON tree per step. MCP schemas remain
+session-specific and are refreshed through the existing lazy MCP contract.
+
+Web tools use existing reqwest/rustls; fetch pins public DNS and rechecks redirects.
+Search is an optional [Brave HTTP API](https://api-dashboard.search.brave.com/documentation/guides/authentication)
+connection, not an implicit scraping proxy. Browser control uses the
+[Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/)
+over loopback with an explicitly configured dedicated profile. No Chromium,
+Playwright or browser cache is shipped. Evaluation handles and failed new tabs
+have bounded cleanup guards.
+
+Interactive terminals use WezTerm's [portable-pty](https://docs.rs/portable-pty/0.9.0/portable_pty/)
+for Unix PTY / Windows ConPTY portability; no Node terminal server is required.
+Only live terminals allocate their two small I/O stacks. Inputs, output channels,
+rolling logs, job count and lifetimes are bounded. Parent-to-child mailboxes hold
+at most eight 8 KiB messages. Finishing and accepting messages share one lock so
+late steering cannot silently pass the final-reply boundary.
+
+Exact patches and image viewing reuse Piko's existing path and multimodal rules.
+Patch batches preflight completely, then recheck after permission; file replacement
+is atomic but multi-file rollback is deliberately not promised. Standard
+[ACP tool progress, permissions and image content](https://agentclientprotocol.com/protocol/v1/tool-calls)
+keep these tools usable in CodeInk and other ACP clients.

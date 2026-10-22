@@ -126,6 +126,7 @@ struct Slot {
     busy: Arc<Semaphore>,
     cancel: Mutex<CancellationToken>,
     jobs: Jobs,
+    mailboxes: Arc<crate::agents::Mailboxes>,
     mcp: Arc<McpServers>,
     models: ModelCatalog,
 }
@@ -142,6 +143,7 @@ pub struct Server {
     shutdown: CancellationToken,
     mcp_pool: Arc<McpPool>,
     desktop: Arc<crate::computer::Desktop>,
+    builtins: Arc<crate::agent::Builtins>,
 }
 
 impl Server {
@@ -170,6 +172,7 @@ impl Server {
             shutdown: CancellationToken::new(),
             mcp_pool,
             desktop: Arc::new(crate::computer::Desktop::default()),
+            builtins: Arc::new(crate::agent::Builtins::default()),
         })
     }
 
@@ -243,6 +246,7 @@ impl Server {
                     busy: Arc::new(Semaphore::new(0)),
                     cancel: Mutex::new(self.shutdown.child_token()),
                     jobs: Jobs::new(self.config.max_jobs, self.config.tool_output_bytes),
+                    mailboxes: Arc::new(crate::agents::Mailboxes::default()),
                     mcp,
                     models,
                 });
@@ -541,6 +545,8 @@ impl Server {
             peer: self.peer.clone(),
             workspace: slot.workspace.clone(),
             jobs: slot.jobs.clone(),
+            mailboxes: slot.mailboxes.clone(),
+            builtins: self.builtins.clone(),
             mcp: slot.mcp.clone(),
             desktop: self.desktop.clone(),
             agents: self.agents.clone(),
@@ -562,7 +568,7 @@ impl Server {
         let user = json!({"role":"user","content":text});
         let reserved = crate::session::json_bytes(&user)?
             + instructions.len()
-            + crate::session::json_bytes(&toolset.definitions)?
+            + toolset.schemas.encoded.get().len()
             + 512;
         ensure!(
             reserved <= self.config.context_bytes,

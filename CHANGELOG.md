@@ -1,3 +1,21 @@
+# 0.6.0
+
+- Add approved web fetch with public-network DNS pinning and bounded text, plus
+  optional Brave-compatible search returning source links. Search requires a key.
+- Add optional native Chrome/Edge CDP browser control: tabs, navigation, page
+  snapshots, selectors, JavaScript and screenshots. Reuse an installed browser
+  with a dedicated profile; no bundled browser, Playwright or download.
+- Add workspace PNG/JPEG viewing and exact-context apply_patch with full preflight,
+  protected paths, stale-content checks and atomic per-file writes.
+- Add genuine Unix PTY / Windows ConPTY sessions with approved input, resize,
+  rolling output, deadlines, cancellation and process-tree cleanup.
+- Add bounded parent-to-child agent messages and follow-up turns preserving child
+  context; close the final-reply message race and keep read-only limits intact.
+- Share immutable built-in schemas across sessions and encode them once; reuse
+  Responses schema bytes across model steps. Keep optional tools lazy and their outputs, queues and lifetimes bounded.
+- Expand native HTTP/WebSocket/PTY fixtures and end-to-end ACP checks across all
+  six release targets; smoke-test an installed Chrome against a local page.
+
 # 0.5.0
 
 - Compact capability-aware prompts: project instruction precedence, evidence-based

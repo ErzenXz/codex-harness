@@ -1,5 +1,5 @@
 use crate::{
-    agent::{AgentContext, run_agent},
+    agent::AgentContext,
     workspace::{read_text_page, truncate},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -50,7 +50,14 @@ pub fn definitions(read_only: bool, can_spawn: bool) -> Vec<Value> {
             json!({"entries":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"content":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed"]}},"required":["content","status"],"additionalProperties":false}}}),
         ),
     ];
+    tools.push(crate::image::definition());
+    tools.extend([
+        function("message_agent", "Send a bounded message to your running child agent. Delivered before its next model request; does not interrupt a request or tool already in progress.", json!({"task_id":{"type":"string"},"message":{"type":"string","maxLength":8192}})),
+        function("followup_agent", "Resume a completed child agent with its bounded prior context. Use message_agent while it is running. Cancelled or evicted agents require spawning a new agent.", json!({"task_id":{"type":"string"},"message":{"type":"string","maxLength":8192}})),
+    ]);
     if !read_only {
+        tools.push(crate::patch::definition());
+        tools.extend(crate::terminal::definitions());
         tools.extend([
             function("write_file", "Create or replace a workspace file after explicit client approval. Prefer edit_file for existing files.", json!({"path":{"type":"string"},"content":{"type":"string"}})),
             function("edit_file", "Replace exactly one matching string in an existing file after approval. Fails for absent or ambiguous matches.", json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}})),
@@ -204,7 +211,16 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
             job.cancel.cancel();
             Ok(json!({"task_id":job.id,"status":"cancelling"}))
         }
-        "spawn_agent" => spawn_agent(ctx, args).await,
+        "spawn_agent" => crate::agents::spawn(ctx, args).await,
+        "message_agent" => crate::agents::message(ctx, args, false).await,
+        "followup_agent" => crate::agents::message(ctx, args, true).await,
+        "apply_patch" => crate::patch::execute(ctx, args, call_id).await,
+        "view_image" => crate::image::execute(ctx, args, call_id).await,
+        "web_search" | "web_fetch" => crate::web::execute(ctx, name, args, call_id).await,
+        "browser" => crate::browser::execute(ctx, args, call_id).await,
+        "terminal_start" | "terminal_write" | "terminal_resize" | "terminal_close" => {
+            crate::terminal::execute(ctx, name, args, call_id).await
+        }
         "update_plan" => {
             let entries = args["entries"].as_array().context("Missing entries")?;
             ensure!(entries.len() <= 20, "Plan exceeds 20 entries");
@@ -225,75 +241,6 @@ pub async fn execute(ctx: &AgentContext, name: &str, args: &Value, call_id: &str
             Ok(json!({"status":"published"}))
         }
         _ => bail!("Unknown or disabled tool: {name}"),
-    }
-}
-
-async fn spawn_agent(ctx: &AgentContext, args: &Value) -> Result<Value> {
-    ensure!(
-        ctx.depth < ctx.config.max_subagent_depth,
-        "Subagent depth limit reached"
-    );
-    let role = string(args, "role")?;
-    ensure!(
-        ["explore", "worker", "reviewer"].contains(&role),
-        "Invalid subagent role"
-    );
-    let prompt = string(args, "prompt")?.to_owned();
-    ensure!(prompt.len() <= 32768, "Subagent prompt too long");
-    let background = args["background"].as_bool().context("Missing background")?;
-    // Non-blocking acquisition avoids nested agents deadlocking the shared budget.
-    let permit = ctx
-        .agents
-        .clone()
-        .try_acquire_owned()
-        .context("Subagent concurrency limit reached")?;
-    let job = ctx
-        .jobs
-        .reserve("agent", ctx.agent_id.clone(), ctx.cancel.child_token())
-        .await?;
-    let mut child = ctx.clone();
-    child.depth += 1;
-    child.agent_id = Some(job.id.clone());
-    child.cancel = job.cancel.clone();
-    child.read_only = ctx.read_only || role != "worker";
-    let task = job.clone();
-    tokio::spawn(async move {
-        let _permit = permit;
-        let mut items = vec![json!({"role":"user","content":prompt})];
-        let result = run_agent(&child, &mut items).await;
-        let (status, output) = if child.cancel.is_cancelled() {
-            ("cancelled", "Cancelled".into())
-        } else {
-            match result {
-                Ok(result) => ("completed", result.text),
-                Err(error) => ("failed", format!("{error:#}")),
-            }
-        };
-        task.finish(status, output, None, child.config.tool_output_bytes)
-            .await;
-        let _ = child
-            .peer
-            .task_event(&child.session_id, &task.id, task.snapshot().await)
-            .await;
-    });
-    ctx.peer
-        .task_event(
-            &ctx.session_id,
-            &job.id,
-            json!({"status":"running","kind":"agent","role":role,"parentId":ctx.agent_id}),
-        )
-        .await?;
-    if background {
-        return Ok(json!({"task_id":job.id,"status":"running"}));
-    }
-    loop {
-        let snapshot = ctx
-            .jobs
-            .status(&job.id, ctx.agent_id.as_deref(), 30000, &ctx.cancel)
-            .await?;
-        if snapshot["status"] != "running" {
-            return Ok(snapshot);
-        }
     }
 }
 

@@ -1,0 +1,8 @@
+# Trusted user config; pass --config /absolute/path/tools.toml to your ACP command.
+# Existing sign-in is reused. Search key belongs in the launcher's environment.
+web_enabled = true
+web_search_api_key_env = "BRAVE_SEARCH_API_KEY"
+# Start an installed dedicated Chrome/Edge profile first; see docs/reference.md.
+# browser_cdp_url = "http://127.0.0.1:9222"
+command_timeout_secs = 120
+max_jobs = 16

@@ -42,28 +42,29 @@ ACP app; selections persist per session. [Discovery and picker details →](http
 
 ## Performance
 
-Measured locally on **macOS arm64 · v0.5.0**.
+Measured locally on **macOS arm64 · v0.6.0**.
 
 | Metric | Result |
 | :--- | ---: |
-| Native binary | **3.05 MB** |
-| ACP startup + initialize | **8.08 ms** |
-| Idle memory, sampled RSS | **3.66 MiB** |
+| Native binary | **3.30 MB** |
+| 256 concurrent mock turns | **675 ms** |
+| Idle memory, sampled RSS | **3.81 MiB** |
 
-Median of three synthetic runs; warm native startup includes fixture setup and
-excludes model inference. Memory and timings vary by workload.
-[Raw results](https://github.com/ErzenXz/piko/blob/main/docs/benchmarks/macos-arm64-0.5.0.json) ·
+Median of three local synthetic runs with a 50 ms mock provider delay; model
+inference and browser memory are excluded. Timings and RSS vary by workload.
+[Raw results](https://github.com/ErzenXz/piko/blob/main/docs/benchmarks/macos-arm64-0.6.0.json) ·
 [Before/after results and reproduction](https://github.com/ErzenXz/piko/blob/main/docs/performance.md)
 
 ## Built to stay light
 
-One async event-loop thread, shared HTTP connections, lazy MCP connections and
+One async event-loop thread, shared tool schemas and HTTP connections, lazy MCP and
 bounded history, files and tool output. No telemetry, daemon, updater or bundled
 browser/model.
 
-Streaming, file/search tools, MCP, subagents, background jobs, persistent sessions,
-cancellation and permission controls are built in. Precise edits, bounded file
-pages and recoverable tool checkpoints help keep work predictable.
+File/search tools, exact patches, image viewing, interactive terminals, subagents
+with messaging, MCP and recoverable sessions are built in. Approved web fetching
+and optional web search/browser automation expand what the agent can verify.
+[Tool setup →](https://github.com/ErzenXz/piko/blob/main/docs/reference.md#web-browser-images-and-interactive-tools)
 [Design and recovery →](https://github.com/ErzenXz/piko/blob/main/docs/design.md)
 
 For the lowest launch overhead, run `piko --print-binary-path` and use
@@ -71,8 +72,10 @@ that executable directly in your ACP app. On macOS/Linux the standard launcher
 replaces Node with Rust where `execve` is available; Windows keeps a forwarding
 process until you use the native path.
 
-Approved tools can access your host. Native desktop control is optional and
-requires Linux X11; macOS/Windows computer use works through MCP. See
+Web search needs your Brave API key; browser automation uses an explicitly
+configured installed Chrome/Edge with a dedicated profile. No browser is bundled.
+Approved tools can access your host. Full desktop control requires Linux X11
+or an external MCP computer server on macOS/Windows. See
 [security and limits](https://github.com/ErzenXz/piko/blob/main/docs/reference.md#safety-boundaries).
 
 ---
