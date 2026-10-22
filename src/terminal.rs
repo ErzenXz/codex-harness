@@ -312,7 +312,18 @@ fn spawn(
         // CommandBuilder applies C argv escaping, which cannot represent arbitrary
         // cmd.exe scripts. Expand only this quoted, private script path; user
         // quotes, percent variables and multiline commands are parsed inside it.
-        cmd.args(["/D", "/S", "/C", "call", "%PIKO_TERMINAL_SCRIPT%"]);
+        // IF keeps /S away from the path's quotes without CALL's second
+        // percent-expansion pass. Registry shell preferences must not change it.
+        cmd.args([
+            "/D",
+            "/E:ON",
+            "/V:OFF",
+            "/S",
+            "/C",
+            "if",
+            "1==1",
+            "%PIKO_TERMINAL_SCRIPT%",
+        ]);
         cmd
     };
     #[cfg(not(windows))]
@@ -1030,7 +1041,16 @@ mod tests {
             .join("cmd.exe");
         assert!(!executable.as_os_str().to_string_lossy().contains('/'));
         let output = std::process::Command::new(executable)
-            .args(["/D", "/S", "/C", "call", "%PIKO_TERMINAL_SCRIPT%"])
+            .args([
+                "/D",
+                "/E:ON",
+                "/V:OFF",
+                "/S",
+                "/C",
+                "if",
+                "1==1",
+                "%PIKO_TERMINAL_SCRIPT%",
+            ])
             .env("PIKO_TERMINAL_SCRIPT", format!("\"{}\"", script.display()))
             .output()
             .unwrap();
