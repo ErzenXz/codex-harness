@@ -51,47 +51,52 @@ model input; durable history has a separate 16 MiB/session cap. Neither caps tot
 process RSS. Read the runtime limits in the
 [technical reference](reference.md#performance-and-memory).
 
-## Version 0.6.0 tools and footprint (2026-10-22)
+## Version 0.6.1 tools and footprint (2026-10-22)
 
-Compared the installed 0.5.0 npm binary against a local 0.6.0 release build on the
-same macOS arm64 machine, using three alternating warmed runs and no concurrent
-agent builds, tests or browser automation. Results below are medians. Startup
-includes temporary fixture setup and showed substantial OS/filesystem variation.
+Compared the installed 0.5.0 npm binary against a local 0.6.1 release build on the
+same macOS arm64 machine. The earlier 0.5.0 baseline uses the same fixture; three
+0.6.1 runs were recorded as a block after a dedicated warm-up, with no concurrent
+local agent builds, tests or browser automation. These runs were not randomized.
+Numbers below are medians. Startup includes fixture setup and excludes initial OS
+verification; timing and RSS remain sensitive to filesystem caches and paging.
 
-| Measurement | 0.5.0 | 0.6.0 |
+| Measurement | 0.5.0 | 0.6.1 |
 | --- | ---: | ---: |
-| Native binary bytes | 3,051,760 | 3,302,448 |
-| ACP startup + initialize | 7.07 ms | 20.82 ms |
-| Startup observed range | 6.97–12.34 ms | 6.82–48.28 ms |
-| Idle sampled RSS | 3,776 KiB | 3,904 KiB |
-| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.675 s |
-| Sampled RSS after 256 completed prompts | 33,888 KiB | 30,032 KiB |
-| 10,000-file search, end-to-end | 278.48 ms | 218.92 ms |
+| Native binary bytes | 3,051,760 | 3,302,608 |
+| ACP startup + initialize | 7.07 ms | 5.83 ms |
+| Startup observed range | 6.97–12.34 ms | 5.82–5.96 ms |
+| Idle sampled RSS | 3,776 KiB | 3,888 KiB |
+| 256 mock prompts, 50 ms simulated delay | 0.650 s | 0.735 s |
+| Sampled RSS after 256 completed prompts | 33,888 KiB | 30,048 KiB |
+| 10,000-file search, end-to-end | 278.48 ms | 230.98 ms |
 
-The new web, image, patch, PTY and messaging tools add **250,688 bytes (8.2%)** to
-the native executable. Piko remains 27.6% smaller than the 0.4.1 binary measured
-above, but this release is larger than 0.5.0. It ships no browser, model, Node tool
-server or JavaScript runtime dependencies. Browser RAM is external; each live
-terminal adds two small-stack I/O threads and OS terminal/process resources.
+The new web, image, patch, PTY and messaging tools add **250,848 bytes (8.2%)** to
+the native executable. This release is larger than 0.5.0. It ships no browser,
+model, Node tool server or JavaScript runtime dependencies. Browser RAM is
+external; each live terminal adds two small-stack I/O threads and OS resources.
 
-Built-in tool schemas are now shared across sessions instead of being rebuilt
-and copied for every prompt. Responses reuses their encoded bytes across steps.
-This removed a measured allocation regression during development. The final
-fixture's completed-prompt RSS is lower, while idle RSS is slightly higher.
-Three samples do not establish a universal memory or speed improvement. Startup
-is noisy, short-turn throughput is roughly flat/slightly slower, and the search
-fixture is faster in these samples; do not interpret that as a general speedup.
+Built-in tool schemas are shared across sessions instead of being rebuilt and
+copied for every prompt. Responses reuses their encoded bytes across steps. This
+removed an allocation regression measured during development. The final fixture's
+completed-prompt RSS is lower, while idle RSS is slightly higher. Startup and
+search are faster in these samples; the short-turn fixture is slower. This is
+**not a general speedup or universal memory-reduction claim**. The expanded tool
+catalog also consumes more model context and request bytes.
 
 A separate held-stream fixture consumed every 128 KiB prompt and received all
 successful SSE headers before sampling. At 64 concurrent streams, steady sampled
-RSS was 47,360 → 45,600 KiB, and observed workload maximum was 52,976 → 51,008 KiB.
-The 32-stream result is close (26,784 → 26,480 KiB); one stream is higher in 0.6.0
-(4,272 → 5,136 KiB). Raw phase samples include page reclamation and all runs.
+RSS was 47,840 → 46,352 KiB, and observed workload maximum was 53,280 → 51,296 KiB.
+The 32-stream result is close (27,040 → 26,400 KiB); one stream is slightly higher
+in 0.6.1 (4,960 → 5,104 KiB). Raw phase samples include page reclamation and all runs.
 
-[Raw results, hashes, held-stream samples and validation scope](benchmarks/macos-arm64-0.6.0.json).
-The installed Chrome smoke test verified a local page through real CDP navigation,
-snapshot, typing, click, evaluation, screenshot and close, using its own temporary
-profile. Search uses documented HTTP fixtures; no paid search key was available.
+[Raw results, hashes, held-stream samples and validation scope](benchmarks/macos-arm64-0.6.1.json).
+A real Chrome smoke test verified a local page through CDP navigation, snapshot,
+typing, click, evaluation, screenshot and close with a temporary dedicated profile.
+Public web fetching succeeded against agents.md; search uses documented HTTP
+fixtures and no paid search key. A live ChatGPT coding check exercised image
+viewing, patching and shell verification while preserving other fixture files.
+The unpublished 0.6.0 candidate's [raw measurements](benchmarks/macos-arm64-0.6.0.json)
+are retained separately; Windows startup negotiation was fixed before publishing.
 
 ## Version 0.5.0 comparison (2026-10-21)
 

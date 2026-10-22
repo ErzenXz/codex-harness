@@ -1,0 +1,1991 @@
+{
+  "date": "2026-10-22",
+  "warmup": "Exact0.6.1binary completed a five-prompt fixture before recording. No concurrent local agent builds, tests or browser automation.",
+  "runs": [
+    {
+      "version": "0.5.0",
+      "iteration": 0,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3051760,
+      "binary_sha256": "0774749e030d6c366e01eef01ad2f3b469f6f71dea282a312c7b9b88b6b429b9",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 12.34,
+      "create_sessions_seconds": 0.599,
+      "complete_prompts_seconds": 0.73,
+      "synthetic_prompts_per_second": 350.6,
+      "prompt_latency_ms": {
+        "p50": 714.52,
+        "p95": 715.15
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3744
+        },
+        "loaded": {
+          "VmRSS": 9904
+        },
+        "after_prompts": {
+          "VmRSS": 33888
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          241.76,
+          278.06,
+          309.23,
+          371.13,
+          278.48
+        ],
+        "median": 278.48,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    },
+    {
+      "version": "0.5.0",
+      "iteration": 1,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3051760,
+      "binary_sha256": "0774749e030d6c366e01eef01ad2f3b469f6f71dea282a312c7b9b88b6b429b9",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 6.97,
+      "create_sessions_seconds": 0.627,
+      "complete_prompts_seconds": 0.65,
+      "synthetic_prompts_per_second": 394.1,
+      "prompt_latency_ms": {
+        "p50": 643.63,
+        "p95": 646.61
+      },
+      "peak_simultaneous_mock_requests": 242,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3776
+        },
+        "loaded": {
+          "VmRSS": 9840
+        },
+        "after_prompts": {
+          "VmRSS": 27072
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          292.78,
+          239.92,
+          236.47,
+          231.28,
+          213.27
+        ],
+        "median": 236.47,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    },
+    {
+      "version": "0.5.0",
+      "iteration": 2,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3051760,
+      "binary_sha256": "0774749e030d6c366e01eef01ad2f3b469f6f71dea282a312c7b9b88b6b429b9",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 7.07,
+      "create_sessions_seconds": 0.58,
+      "complete_prompts_seconds": 0.64,
+      "synthetic_prompts_per_second": 400.2,
+      "prompt_latency_ms": {
+        "p50": 635.38,
+        "p95": 636.53
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3776
+        },
+        "loaded": {
+          "VmRSS": 9792
+        },
+        "after_prompts": {
+          "VmRSS": 34256
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          322.4,
+          250.93,
+          292.97,
+          607.76,
+          1523.58
+        ],
+        "median": 322.4,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    },
+    {
+      "version": "0.6.1",
+      "iteration": 0,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302608,
+      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 5.96,
+      "create_sessions_seconds": 0.644,
+      "complete_prompts_seconds": 0.735,
+      "synthetic_prompts_per_second": 348.3,
+      "prompt_latency_ms": {
+        "p50": 726.99,
+        "p95": 728.08
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3888
+        },
+        "loaded": {
+          "VmRSS": 9952
+        },
+        "after_prompts": {
+          "VmRSS": 30048
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          222.38,
+          220.04,
+          226.97,
+          221.98,
+          226.98
+        ],
+        "median": 222.38,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    },
+    {
+      "version": "0.6.1",
+      "iteration": 1,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302608,
+      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 5.83,
+      "create_sessions_seconds": 0.634,
+      "complete_prompts_seconds": 0.684,
+      "synthetic_prompts_per_second": 374.4,
+      "prompt_latency_ms": {
+        "p50": 678.91,
+        "p95": 680.01
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3920
+        },
+        "loaded": {
+          "VmRSS": 9904
+        },
+        "after_prompts": {
+          "VmRSS": 30096
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          279.69,
+          216.08,
+          219.98,
+          234.94,
+          230.98
+        ],
+        "median": 230.98,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    },
+    {
+      "version": "0.6.1",
+      "iteration": 2,
+      "scope": "Synthetic loopback SSE; small prompts; excludes model inference and provider limits. NOT a real cache-rate or competitor benchmark.",
+      "binary_bytes": 3302608,
+      "binary_sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327",
+      "environment": {
+        "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "logical_cpus": 10
+      },
+      "agents": 256,
+      "simulated_model_delay_ms": 50.0,
+      "startup_and_initialize_ms": 5.82,
+      "create_sessions_seconds": 0.678,
+      "complete_prompts_seconds": 0.746,
+      "synthetic_prompts_per_second": 343.2,
+      "prompt_latency_ms": {
+        "p50": 731.61,
+        "p95": 732.25
+      },
+      "peak_simultaneous_mock_requests": 256,
+      "process_memory_kib_and_threads": {
+        "idle": {
+          "VmRSS": 3888
+        },
+        "loaded": {
+          "VmRSS": 9840
+        },
+        "after_prompts": {
+          "VmRSS": 29936
+        }
+      },
+      "search_10000_files_end_to_end_ms": {
+        "samples": [
+          291.0,
+          247.94,
+          302.87,
+          238.43,
+          232.72
+        ],
+        "median": 247.94,
+        "engines": [
+          "ripgrep"
+        ]
+      }
+    }
+  ],
+  "comparison_layout": "0.5.0 baseline was collected earlier with the same fixture; three warmed0.6.1runs recorded as a block. Not randomized or a general performance guarantee.",
+  "memory_fixture": {
+    "scope": "Synthetic loopback SSE allocation fixture. Native PID RSS only; excludes model inference and Python fixture memory. Not a real-model or intelligence benchmark.",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+      "logical_cpus": 10
+    },
+    "measurement": {
+      "unit": "KiB",
+      "samples_per_phase": 12,
+      "sample_interval_seconds": 0.05,
+      "fixture": "consume all POST bodies, send all HTTP 200 SSE headers, hold every response body, sample, release identical final output"
+    },
+    "results": [
+      {
+        "binary": {
+          "path": "/Users/erzen/Library/pnpm/global/v11/d1f1-18e0a32ee0ec1db8-0/node_modules/.pnpm/@erzenx+piko-darwin-arm64@0.5.0/node_modules/@erzenx/piko-darwin-arm64/bin/piko",
+          "version": "piko 0.5.0",
+          "bytes": 3051760,
+          "sha256": "0774749e030d6c366e01eef01ad2f3b469f6f71dea282a312c7b9b88b6b429b9"
+        },
+        "runs": [
+          {
+            "agents": 1,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 1,
+            "peak_simultaneous_fixture_streams": 1,
+            "aggregate_request_body_bytes": 136906,
+            "held_phase_seconds": 0.834,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3728.0,
+                "max_kib": 3728,
+                "samples": [
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  },
+                  {
+                    "VmRSS": 3728
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 3968.0,
+                "max_kib": 3968,
+                "samples": [
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  },
+                  {
+                    "VmRSS": 3968
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 4960.0,
+                "max_kib": 4960,
+                "samples": [
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 5056.0,
+                "max_kib": 5056,
+                "samples": [
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 4960.0,
+                "max_kib": 5056,
+                "samples": [
+                  {
+                    "VmRSS": 4768
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 4960
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  },
+                  {
+                    "VmRSS": 5056
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 992.0
+          },
+          {
+            "agents": 32,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 32,
+            "peak_simultaneous_fixture_streams": 32,
+            "aggregate_request_body_bytes": 4380992,
+            "held_phase_seconds": 0.926,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3776.0,
+                "max_kib": 3776,
+                "samples": [
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 5136.0,
+                "max_kib": 5136,
+                "samples": [
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  },
+                  {
+                    "VmRSS": 5136
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 27040.0,
+                "max_kib": 27040,
+                "samples": [
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 31232.0,
+                "max_kib": 31232,
+                "samples": [
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 27040.0,
+                "max_kib": 31232,
+                "samples": [
+                  {
+                    "VmRSS": 5952
+                  },
+                  {
+                    "VmRSS": 23376
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 27040
+                  },
+                  {
+                    "VmRSS": 28448
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  },
+                  {
+                    "VmRSS": 31232
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 21904.0
+          },
+          {
+            "agents": 64,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 64,
+            "peak_simultaneous_fixture_streams": 64,
+            "aggregate_request_body_bytes": 8761984,
+            "held_phase_seconds": 0.979,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3776.0,
+                "max_kib": 3776,
+                "samples": [
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  },
+                  {
+                    "VmRSS": 3776
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 5808.0,
+                "max_kib": 5808,
+                "samples": [
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  },
+                  {
+                    "VmRSS": 5808
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 47840.0,
+                "max_kib": 47840,
+                "samples": [
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 53280.0,
+                "max_kib": 53280,
+                "samples": [
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 28848
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 47840,
+                "max_kib": 53280,
+                "samples": [
+                  {
+                    "VmRSS": 6640
+                  },
+                  {
+                    "VmRSS": 22240
+                  },
+                  {
+                    "VmRSS": 37424
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 47840
+                  },
+                  {
+                    "VmRSS": 53136
+                  },
+                  {
+                    "VmRSS": 53248
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 53280
+                  },
+                  {
+                    "VmRSS": 28848
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  },
+                  {
+                    "VmRSS": 18240
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 42032.0
+          }
+        ]
+      },
+      {
+        "binary": {
+          "path": "/Users/erzen/Projects/codex-harness/target/release/piko",
+          "version": "piko 0.6.1",
+          "bytes": 3302608,
+          "sha256": "a7cec1e0f04f20f8f2226b453f4f7b0b676c295c77390e990b8ac622de3c9327"
+        },
+        "runs": [
+          {
+            "agents": 1,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 1,
+            "peak_simultaneous_fixture_streams": 1,
+            "aggregate_request_body_bytes": 141336,
+            "held_phase_seconds": 0.846,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3888.0,
+                "max_kib": 3888,
+                "samples": [
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 4112.0,
+                "max_kib": 4112,
+                "samples": [
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  },
+                  {
+                    "VmRSS": 4112
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 5104.0,
+                "max_kib": 5104,
+                "samples": [
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 5344.0,
+                "max_kib": 5344,
+                "samples": [
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 5104.0,
+                "max_kib": 5344,
+                "samples": [
+                  {
+                    "VmRSS": 4896
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5104
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  },
+                  {
+                    "VmRSS": 5344
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 992.0
+          },
+          {
+            "agents": 32,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 32,
+            "peak_simultaneous_fixture_streams": 32,
+            "aggregate_request_body_bytes": 4522752,
+            "held_phase_seconds": 0.933,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3888.0,
+                "max_kib": 3888,
+                "samples": [
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 5248.0,
+                "max_kib": 5248,
+                "samples": [
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  },
+                  {
+                    "VmRSS": 5248
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 26400.0,
+                "max_kib": 26400,
+                "samples": [
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 31120.0,
+                "max_kib": 31120,
+                "samples": [
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 26400.0,
+                "max_kib": 31120,
+                "samples": [
+                  {
+                    "VmRSS": 6080
+                  },
+                  {
+                    "VmRSS": 24112
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26400
+                  },
+                  {
+                    "VmRSS": 26656
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  },
+                  {
+                    "VmRSS": 31120
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 21152.0
+          },
+          {
+            "agents": 64,
+            "prompt_bytes_each": 131072,
+            "context_budget_bytes_each": 393216,
+            "received_model_requests": 64,
+            "peak_simultaneous_fixture_streams": 64,
+            "aggregate_request_body_bytes": 9045504,
+            "held_phase_seconds": 0.965,
+            "rss_kib": {
+              "idle": {
+                "median_kib": 3888.0,
+                "max_kib": 3888,
+                "samples": [
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  },
+                  {
+                    "VmRSS": 3888
+                  }
+                ]
+              },
+              "loaded_sessions": {
+                "median_kib": 5984.0,
+                "max_kib": 5984,
+                "samples": [
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  },
+                  {
+                    "VmRSS": 5984
+                  }
+                ]
+              },
+              "all_streams_held": {
+                "median_kib": 46352.0,
+                "max_kib": 46352,
+                "samples": [
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  }
+                ]
+              },
+              "after_completed": {
+                "median_kib": 51296.0,
+                "max_kib": 51296,
+                "samples": [
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  }
+                ]
+              },
+              "observed_during_workload": {
+                "median_kib": 46352.0,
+                "max_kib": 51296,
+                "samples": [
+                  {
+                    "VmRSS": 6688
+                  },
+                  {
+                    "VmRSS": 25440
+                  },
+                  {
+                    "VmRSS": 43792
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46352
+                  },
+                  {
+                    "VmRSS": 46800
+                  },
+                  {
+                    "VmRSS": 51104
+                  },
+                  {
+                    "VmRSS": 51280
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  },
+                  {
+                    "VmRSS": 51296
+                  }
+                ]
+              }
+            },
+            "held_minus_loaded_median_kib": 40368.0
+          }
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "rust_tests": 97,
+    "acp_stdio_tests": 34,
+    "macos_stdio_skips": 1,
+    "reliability_tests": 7,
+    "new_tool_acp_tests": 8,
+    "npm_tests": 4,
+    "packed_install": "scripts disabled, offline",
+    "browser": "real installed Chrome dedicated-profile local fixture on0.6candidate; navigation snapshot type click evaluate screenshot close passed",
+    "web_fetch": "real public https://agents.md fetched; no paid search API used",
+    "search": "documented Brave HTTP API fixture",
+    "live_coding": "existing ChatGPT login, gpt-6-luna low; 0.6candidate viewed image, patched clamp.py, ran independent tests and preserved test/sentinel files",
+    "full_desktop": "Linux X11 native; macOS/Windows via external MCP"
+  }
+}

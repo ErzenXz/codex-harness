@@ -73,7 +73,7 @@ cancellation. CI runs the same checks on macOS/Linux/Windows, arm64/x64.
 overhead from model inference, provider capacity and coding quality.
 
 
-## Tool expansion in 0.6
+## Tool expansion in 0.6.1
 
 Built-in schemas are immutable and shared across sessions by mode and delegation
 capability. Their encoded Responses representation is generated once and copied
@@ -100,3 +100,9 @@ Patch batches preflight completely, then recheck after permission; file replacem
 is atomic but multi-file rollback is deliberately not promised. Standard
 [ACP tool progress, permissions and image content](https://agentclientprotocol.com/protocol/v1/tool-calls)
 keep these tools usable in CodeInk and other ACP clients.
+
+Windows ConPTY requests CPR and device attributes before accepting normal console
+work. A bounded Windows-only responder answers those queries independently of
+model input; I/O pipes are handed to workers before child startup. Cancellation
+keeps fixed protocol replies alive briefly while closing off the event loop.
+See Microsoft's [CreatePseudoConsole contract](https://learn.microsoft.com/en-us/windows/console/createpseudoconsole).
